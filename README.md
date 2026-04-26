@@ -42,13 +42,15 @@ compose-remote run --name my-stack \
 
 Common flags:
 
-| Flag                | Purpose                                                                        |
-|---------------------|--------------------------------------------------------------------------------|
-| `--name`            | Stack name. Required. Used as the docker compose project name by default.     |
-| `--project`         | Override the docker compose project name.                                      |
-| `--state-dir`       | Where compose-remote keeps its working files (default: `$XDG_STATE_HOME/compose-remote` or `~/.local/state/compose-remote`). |
-| `--interval`        | How often to re-check (default `30s`).                                         |
-| `--once`            | Reconcile once and exit (handy for tests / cron).                              |
+| Flag                        | Purpose                                                                        |
+|-----------------------------|--------------------------------------------------------------------------------|
+| `--name`                    | Stack name. Required. Used as the docker compose project name by default.     |
+| `--project`                 | Override the docker compose project name.                                      |
+| `--state-dir`               | Where compose-remote keeps its working files (default: `$XDG_STATE_HOME/compose-remote` or `~/.local/state/compose-remote`). |
+| `--interval`                | How often to re-check (default `30s`).                                         |
+| `--once`                    | Reconcile once and exit (handy for tests / cron).                              |
+| `--auto-update`             | Enable background self-update checks (requires a process supervisor to restart). |
+| `--auto-update-interval`    | How often to poll for a new release (default `1h`).                            |
 
 Source flags (mutually exclusive, exactly one required):
 
@@ -96,6 +98,30 @@ Every `--interval`:
 Pulls only happen when a service's image string changed in the YAML. The
 tool will not chase floating tags (`:latest`) on its own — pin a digest
 or change the YAML.
+
+## Self-update
+
+compose-remote can update itself from GitHub releases.
+
+One-shot manual update:
+
+```sh
+compose-remote update
+```
+
+To enable automatic background updates while the daemon is running, add
+`--auto-update` to the `run` invocation:
+
+```sh
+compose-remote run --name my-stack --file ./compose.yml --auto-update
+```
+
+When a newer release is detected, compose-remote replaces its own binary
+and calls `os.Exit(0)`. The process supervisor (pm2, systemd, etc.) then
+restarts it with the new binary. The docker-compose stack keeps running
+uninterrupted throughout.
+
+Update checks are skipped for development builds (`version = "(devel)"`).
 
 ## Running under pm2
 

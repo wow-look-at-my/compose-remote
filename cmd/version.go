@@ -11,14 +11,15 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version info",
 	Run: func(_ *cobra.Command, _ []string) {
-		v := "(devel)"
-		if info, ok := debug.ReadBuildInfo(); ok {
-			if info.Main.Version != "" {
-				v = info.Main.Version
-			}
-		}
-		fmt.Println("compose-remote", v)
+		fmt.Println("compose-remote", currentVersion())
 	},
 }
 
 func init() { rootCmd.AddCommand(versionCmd) }
+
+func currentVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "(devel)"
+}
