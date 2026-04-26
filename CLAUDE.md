@@ -64,6 +64,21 @@ pairs into its own process environment. Docker compose, invoked as a
 child, then inherits those vars and uses them for `${VAR}` substitution
 in the compose YAML. Plaintext never hits disk.
 
+Three storage formats are supported, distinguished by file extension:
+
+- `.json` — top-level JSON object. **Default / recommended** because
+  JSON's quoting rules are unambiguous (no surprises around `=`, `#`,
+  multiline strings, etc.).
+- `.yaml` / `.yml` — top-level YAML mapping.
+- `.env` — dotenv-style `KEY=VALUE`.
+
+Any other extension is rejected outright. Inside JSON/YAML, only
+top-level scalars are allowed (string, bool, int, null); nested objects,
+arrays, and fractional numbers are rejected with a clear error rather
+than silently flattened. Env vars are flat strings — there is no sane
+universal mapping from structured data to them, so we make the caller
+choose.
+
 Decryption happens once at startup. To rotate a secret, the supervisor
 (pm2/systemd) must restart the daemon — the next reconcile picks up the
 new value.
