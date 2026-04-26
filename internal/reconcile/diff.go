@@ -36,9 +36,16 @@ type Item struct {
 
 // Diff computes the set of differences between desired and actual.
 //
+// localImageIDs maps a desired image reference (e.g. "traefik:v3") to the
+// SHA digest of the locally cached image (or "" if the image isn't cached
+// locally). When the image string itself is unchanged but the local SHA
+// differs from the running container's image SHA, the service is flagged
+// as DriftedImage so a subsequent pull-tick is followed by a recreate.
+// Pass nil/empty to skip SHA-drift detection.
+//
 // Orphans (actual containers whose service is not in desired) are NOT
 // returned here; they are handled by `docker compose up --remove-orphans`.
-func Diff(desired map[string]compose.Service, actual []compose.Container) []Item {
+func Diff(desired map[string]compose.Service, actual []compose.Container, localImageIDs map[string]string) []Item {
 	byService := map[string]compose.Container{}
 	for _, c := range actual {
 		// If multiple containers exist for one service (scale > 1), pick
@@ -75,6 +82,21 @@ func Diff(desired map[string]compose.Service, actual []compose.Container) []Item
 				PriorContainerID: got.ID,
 			})
 			continue
+		}
+		// Image-SHA drift: same tag in YAML, but the locally cached
+		// image (after a periodic pull) has a newer digest than the
+		// container was created from. Compose's `up -d` won't recreate
+		// in this case because nothing in the YAML changed; we emit
+		// DriftedImage so the bug-fix pass picks it up.
+		if want.Image != "" && got.ImageID != "" {
+			if localID, ok := localImageIDs[want.Image]; ok && localID != "" && localID != got.ImageID {
+				items = append(items, Item{
+					Service:          name,
+					Reason:           DriftedImage,
+					PriorContainerID: got.ID,
+				})
+				continue
+			}
 		}
 		if got.ConfigHash != want.Hash {
 			items = append(items, Item{

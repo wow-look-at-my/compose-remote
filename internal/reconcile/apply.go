@@ -16,6 +16,7 @@ type Composer interface {
 	Up(ctx context.Context) error
 	ForceRecreate(ctx context.Context, service string) error
 	Ps(ctx context.Context) ([]compose.Container, error)
+	ImageID(ctx context.Context, image string) (string, error)
 }
 
 // Apply resolves the diff set against the live host. It:

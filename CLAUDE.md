@@ -40,8 +40,20 @@ Do NOT run `go build`, `go test`, `go mod tidy`, etc. directly.
 - Every `docker compose up` we issue MUST include
   `--remove-orphans --wait`. The `--wait` is non-negotiable: without it
   the bug-fix pass races against unstarted containers.
-- Pulls only happen for services whose image string changed in the YAML
-  (`reconcile.PullSet`). No periodic blanket pulls.
+- Pulls happen on three triggers and only those:
+  1. A service's image string changed in the YAML (`reconcile.PullSet`).
+  2. The user opted in to periodic blanket pulls via `--pull-interval`.
+     The runner's pull goroutine then runs `docker compose pull` (no
+     services arg = all) on that cadence.
+  3. Image-SHA drift discovered in `Diff` -- a tag like `traefik:v3`
+     resolves to a newer local SHA than the running container was
+     created from -- triggers the same DriftedImage code path so the
+     bug-fix pass force-recreates.
+  All three paths route through `docker compose up -d --remove-orphans
+  --wait`, never through bare `docker pull`/`docker run`. That is what
+  keeps `configs:`, `secrets:`, `volumes:`, and `networks:` re-applied
+  correctly on the new container -- the failure mode that made
+  watchtower unsafe.
 - Sources are the only mutable input; everything else is derived. Source
   fetches must be cheap on the no-change path (HTTP ETag, git fetch on a
   shallow clone, file mtime check).

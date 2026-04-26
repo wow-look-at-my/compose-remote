@@ -18,6 +18,12 @@ type Config struct {
 	State    *state.Dir
 	Project  string
 	Interval time.Duration
+	// PullInterval, if > 0, runs `docker compose pull` (all services)
+	// on its own ticker. Zero (the default) disables periodic pulls;
+	// the only pulls then are on YAML image-string changes via
+	// reconcile.PullSet. Image-SHA drift detection in Diff still works
+	// regardless -- it just relies on whatever's in the local cache.
+	PullInterval time.Duration
 }
 
 // Run starts the reconcile loop. It returns when ctx is cancelled or an
@@ -49,8 +55,13 @@ func runLoop(ctx context.Context, cfg Config, client reconcile.Composer) error {
 		log.KV{K: "project", V: cfg.Project},
 		log.KV{K: "source", V: cfg.Source.Name()},
 		log.KV{K: "interval", V: cfg.Interval.String()},
+		log.KV{K: "pull_interval", V: cfg.PullInterval.String()},
 		log.KV{K: "state_dir", V: cfg.State.Path()},
 	)
+
+	if cfg.PullInterval > 0 {
+		go pullLoop(ctx, client, cfg.PullInterval)
+	}
 
 	if err := Tick(ctx, cfg, client); err != nil {
 		log.Warn("first tick failed", log.KV{K: "err", V: err.Error()})
@@ -66,6 +77,31 @@ func runLoop(ctx context.Context, cfg Config, client reconcile.Composer) error {
 		case <-t.C:
 			if err := Tick(ctx, cfg, client); err != nil {
 				log.Warn("tick failed", log.KV{K: "err", V: err.Error()})
+			}
+		}
+	}
+}
+
+// pullLoop periodically runs `docker compose pull` for the whole
+// project. It does NOT trigger a reconcile pass itself: the next
+// regular Tick (within cfg.Interval) will spot image-SHA drift via
+// Diff and recreate any stale containers via the existing apply path.
+//
+// Routing image-pull through compose (rather than `docker pull` +
+// `docker run` like watchtower does) is what keeps configs:, secrets:,
+// volumes:, and networks: re-applied correctly on the new container.
+func pullLoop(ctx context.Context, client reconcile.Composer, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := client.Pull(ctx); err != nil {
+				log.Warn("periodic pull failed", log.KV{K: "err", V: err.Error()})
+			} else {
+				log.Info("periodic pull complete")
 			}
 		}
 	}
@@ -117,8 +153,30 @@ func Tick(ctx context.Context, cfg Config, client reconcile.Composer) error {
 		return fmt.Errorf("compose ps: %w", err)
 	}
 
+	// Look up the local cache's SHA for each desired image, so Diff can
+	// spot SHA drift even when the YAML image string is unchanged. We
+	// dedupe by image string -- many services can share a tag and there's
+	// no reason to inspect twice.
+	localImageIDs := map[string]string{}
+	for _, svc := range parsed.Services() {
+		if svc.Image == "" {
+			continue
+		}
+		if _, seen := localImageIDs[svc.Image]; seen {
+			continue
+		}
+		id, ierr := client.ImageID(ctx, svc.Image)
+		if ierr != nil {
+			log.Warn("image inspect failed",
+				log.KV{K: "image", V: svc.Image},
+				log.KV{K: "err", V: ierr.Error()})
+			continue
+		}
+		localImageIDs[svc.Image] = id
+	}
+
 	// Diff.
-	items := reconcile.Diff(parsed.Services(), actual)
+	items := reconcile.Diff(parsed.Services(), actual, localImageIDs)
 	if len(items) == 0 {
 		log.Info("in sync",
 			log.KV{K: "services", V: len(parsed.Services())},

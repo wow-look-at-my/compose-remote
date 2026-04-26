@@ -48,6 +48,7 @@ Common flags:
 | `--project`                 | Override the docker compose project name.                                      |
 | `--state-dir`               | Where compose-remote keeps its working files (default: `$XDG_STATE_HOME/compose-remote` or `~/.local/state/compose-remote`). |
 | `--interval`                | How often to re-check (default `30s`).                                         |
+| `--pull-interval`           | If > 0, run `docker compose pull` (all services) on this cadence; the next reconcile then recreates any container whose image SHA drifted. Default: disabled. |
 | `--once`                    | Reconcile once and exit (handy for tests / cron).                              |
 | `--auto-update`             | Enable background self-update checks (requires a process supervisor to restart). |
 | `--auto-update-interval`    | How often to poll for a new release (default `1h`).                            |
@@ -86,8 +87,7 @@ Every `--interval`:
 4. Categorize each desired service as: `missing`, `drifted-config`,
    `drifted-image`, `unhealthy`, or in-sync.
 5. If any service is non-sync:
-   - `docker compose pull <svc>` for image-drifted services only (no
-     blanket pulls — the user explicitly opted out of waste).
+   - `docker compose pull <svc>` for image-drifted services only.
    - `docker compose up -d --remove-orphans --wait`. The `--wait` is
      mandatory.
    - **Bug-fix pass**: re-inspect; for each service still using the
@@ -95,9 +95,37 @@ Every `--interval`:
      shouldn't have), run
      `docker compose up -d --force-recreate --no-deps --wait <svc>`.
 
-Pulls only happen when a service's image string changed in the YAML. The
-tool will not chase floating tags (`:latest`) on its own — pin a digest
-or change the YAML.
+### Drift detection
+
+`Diff` flags `drifted-image` in two situations:
+
+1. **Image string changed in YAML** — e.g. `traefik:v3` → `traefik:v3.1`.
+   This is the obvious case.
+2. **Image SHA drift** — the YAML's image string is unchanged, but a
+   periodic pull has populated the local cache with a newer digest than
+   the running container was created from. compose's own
+   `up -d` doesn't recreate in this case (nothing in the YAML changed),
+   so without this check a moving tag like `traefik:v3` would never get
+   the new image after a pull. The bug-fix pass force-recreates instead.
+
+### Periodic pulls
+
+Pass `--pull-interval 1h` (or any duration) to enable periodic
+`docker compose pull` for all services. The pull goroutine runs
+independently of the reconcile ticker; the next reconcile after a pull
+is what spots the SHA drift and force-recreates.
+
+Crucially, every recreate goes through `docker compose up -d
+--remove-orphans --wait`, never through bare `docker pull`/`docker run`.
+This is what keeps `configs:`, `secrets:`, `volumes:`, and `networks:`
+re-applied correctly on the new container — the failure mode that makes
+watchtower-style "pull and bash the container" tooling unsafe with
+modern compose features.
+
+Without `--pull-interval`, compose-remote will still detect SHA drift
+against whatever is already in the local image cache; it just won't
+populate that cache itself. Pin to a digest or use `--pull-interval`
+for predictable rollout behaviour on floating tags.
 
 ## Self-update
 

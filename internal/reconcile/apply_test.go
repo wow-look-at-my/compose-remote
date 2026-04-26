@@ -71,6 +71,13 @@ func (f *fakeCompose) Ps(_ context.Context) ([]compose.Container, error) {
 	return f.defaultPsResponse, nil
 }
 
+func (f *fakeCompose) ImageID(_ context.Context, _ string) (string, error) {
+	// Apply doesn't need ImageID; runner.Tick calls it before Diff. The
+	// fake returns empty so any test that does end up touching it
+	// behaves like "image not yet pulled locally".
+	return "", nil
+}
+
 func TestApplyEmptyItemsIsNoOp(t *testing.T) {
 	f := &fakeCompose{}
 	require.NoError(t, Apply(context.Background(), f, nil))

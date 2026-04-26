@@ -18,11 +18,12 @@ import (
 )
 
 var runFlags struct {
-	name     string
-	project  string
-	stateDir string
-	interval time.Duration
-	once     bool
+	name         string
+	project      string
+	stateDir     string
+	interval     time.Duration
+	pullInterval time.Duration
+	once         bool
 
 	autoUpdate         bool
 	autoUpdateInterval time.Duration
@@ -62,10 +63,11 @@ var runCmd = &cobra.Command{
 		}
 
 		cfg := runner.Config{
-			Source:   src,
-			State:    dir,
-			Project:  runFlags.project,
-			Interval: runFlags.interval,
+			Source:       src,
+			State:        dir,
+			Project:      runFlags.project,
+			Interval:     runFlags.interval,
+			PullInterval: runFlags.pullInterval,
 		}
 		if runFlags.once {
 			return runner.RunOnce(ctx, cfg)
@@ -79,6 +81,7 @@ func init() {
 	runCmd.Flags().StringVar(&runFlags.project, "project", "", "docker compose project name (default: --name)")
 	runCmd.Flags().StringVar(&runFlags.stateDir, "state-dir", "", "state directory (default: $XDG_STATE_HOME/compose-remote)")
 	runCmd.Flags().DurationVar(&runFlags.interval, "interval", 30*time.Second, "reconcile interval")
+	runCmd.Flags().DurationVar(&runFlags.pullInterval, "pull-interval", 0, "if > 0, run `docker compose pull` for all services on this cadence; the next reconcile then recreates any container whose image SHA drifted (default: disabled)")
 	runCmd.Flags().BoolVar(&runFlags.once, "once", false, "perform a single reconcile pass and exit")
 	runCmd.Flags().BoolVar(&runFlags.autoUpdate, "auto-update", true, "periodically check for a newer release and replace the binary (requires pm2 or similar to restart)")
 	runCmd.Flags().DurationVar(&runFlags.autoUpdateInterval, "auto-update-interval", time.Hour, "how often to check for updates")
