@@ -51,6 +51,7 @@ Common flags:
 | `--once`                    | Reconcile once and exit (handy for tests / cron).                              |
 | `--auto-update`             | Enable background self-update checks (requires a process supervisor to restart). |
 | `--auto-update-interval`    | How often to poll for a new release (default `1h`).                            |
+| `--sops-env-file`           | Path to a sops-encrypted dotenv file. Repeatable. Decrypted at startup; values are exported into the daemon process so `${VAR}` substitutions in the compose YAML resolve. Plaintext is never written to disk. |
 
 Source flags (mutually exclusive, exactly one required):
 
@@ -70,6 +71,32 @@ compose-remote apply --name my-stack --file ./compose.yml
 ```
 
 This runs a single reconcile pass and exits.
+
+## Secrets (sops)
+
+Compose files often reference secrets via `${VAR}` substitution. Rather
+than committing those values in plaintext or babysitting an external
+wrapper that decrypts a file before launching compose-remote, the daemon
+can read sops-encrypted dotenv files directly:
+
+```sh
+compose-remote run \
+    --name web-stack \
+    --file ./compose.yml \
+    --sops-env-file ./secrets/web-stack.env
+```
+
+At startup the daemon shells out to `sops decrypt` (so the host needs
+the `sops` binary on PATH and a configured key — age, KMS, etc.) and
+exports each `KEY=VALUE` pair into its own process environment. Docker
+compose, invoked as a child, inherits those vars and uses them to
+expand `${VAR}` in the YAML. The plaintext never touches disk.
+
+`--sops-env-file` may be repeated. Files are processed in order; later
+files override earlier ones, matching shell `source` semantics.
+
+To rotate a secret, update the encrypted file and restart compose-remote
+(e.g. `pm2 restart <stack>`). The next reconcile picks up the new value.
 
 ## How it works
 

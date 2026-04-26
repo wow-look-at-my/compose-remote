@@ -18,6 +18,7 @@ cmd/                       # cobra commands; one command per file
   version.go               # `version` subcommand (also exposes currentVersion())
 
 internal/log/              # tiny key=value structured logger
+internal/secrets/          # sops-encrypted dotenv loader (--sops-env-file)
 internal/source/           # Source interface + file/http/git backends
 internal/state/            # state-dir layout (compose.yml, git clone)
 internal/compose/          # docker compose wrapper + service hashing
@@ -54,6 +55,22 @@ Do NOT run `go build`, `go test`, `go mod tidy`, etc. directly.
 - `reconcile.Apply` takes a `Composer` interface (not the concrete
   `*compose.Client`) so it can be unit-tested with a fake. Same for
   `runner.Tick`.
+
+## Secrets
+
+`--sops-env-file <path>` (repeatable) tells the daemon to shell out to
+`sops decrypt <path>` at startup and export the resulting KEY=VALUE
+pairs into its own process environment. Docker compose, invoked as a
+child, then inherits those vars and uses them for `${VAR}` substitution
+in the compose YAML. Plaintext never hits disk.
+
+Decryption happens once at startup. To rotate a secret, the supervisor
+(pm2/systemd) must restart the daemon — the next reconcile picks up the
+new value.
+
+We deliberately shell out to the `sops` binary rather than importing
+sops as a Go library: the latter pulls in a huge tree of cloud-KMS
+clients we don't need. Operators using sops already have the binary.
 
 ## Self-update
 
