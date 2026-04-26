@@ -80,7 +80,7 @@ func init() {
 	runCmd.Flags().StringVar(&runFlags.stateDir, "state-dir", "", "state directory (default: $XDG_STATE_HOME/compose-remote)")
 	runCmd.Flags().DurationVar(&runFlags.interval, "interval", 30*time.Second, "reconcile interval")
 	runCmd.Flags().BoolVar(&runFlags.once, "once", false, "perform a single reconcile pass and exit")
-	runCmd.Flags().BoolVar(&runFlags.autoUpdate, "auto-update", false, "periodically check for a newer release and replace the binary (requires pm2 or similar to restart)")
+	runCmd.Flags().BoolVar(&runFlags.autoUpdate, "auto-update", true, "periodically check for a newer release and replace the binary (requires pm2 or similar to restart)")
 	runCmd.Flags().DurationVar(&runFlags.autoUpdateInterval, "auto-update-interval", time.Hour, "how often to check for updates")
 
 	addSourceFlags(runCmd, &runFlags.source)
