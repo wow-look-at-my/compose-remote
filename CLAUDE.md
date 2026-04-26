@@ -66,6 +66,7 @@ Do NOT run `go build`, `go test`, `go mod tidy`, etc. directly.
 
 ## CI
 
-Standard go-toolchain workflow at `.github/workflows/ci.yml`. Do not
-touch `permissions: id-token: write, contents: read` — required by
-go-toolchain.
+Standard go-toolchain workflow at `.github/workflows/ci.yml`. The
+workflow uses `autorelease: true`, so `permissions:` MUST include
+`id-token: write` AND `contents: write` (the `write` is required by the
+autorelease step — do not downgrade it to `read`).
