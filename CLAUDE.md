@@ -14,7 +14,8 @@ cmd/                       # cobra commands; one command per file
   root.go                  # rootCmd + Execute()
   run.go                   # `run` daemon loop subcommand
   apply.go                 # `apply` one-shot subcommand
-  version.go               # `version` subcommand
+  update.go                # `update` one-shot self-update subcommand
+  version.go               # `version` subcommand (also exposes currentVersion())
 
 internal/log/              # tiny key=value structured logger
 internal/source/           # Source interface + file/http/git backends
@@ -53,6 +54,22 @@ Do NOT run `go build`, `go test`, `go mod tidy`, etc. directly.
 - `reconcile.Apply` takes a `Composer` interface (not the concrete
   `*compose.Client`) so it can be unit-tested with a fake. Same for
   `runner.Tick`.
+
+## Self-update
+
+The daemon can update itself via `go-selfupdate-mini`:
+
+- `compose-remote update` — one-shot: detect the latest GitHub release and
+  replace the running binary, then exit.
+- `compose-remote run --auto-update` — enable background update checking on
+  a ticker (default `--auto-update-interval 1h`). When a newer release is
+  found, the binary is replaced in-place and the process calls `os.Exit(0)`.
+  pm2 (or whatever supervisor) then restarts it with the new binary.
+
+The docker-compose stack is unaffected by a restart of compose-remote itself.
+
+Update checks are skipped silently when `currentVersion()` returns `"(devel)"`
+(i.e. a binary built directly from source rather than from a tagged release).
 
 ## Adding a new source backend
 
