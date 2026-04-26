@@ -38,5 +38,30 @@ module.exports = {
       autorestart: true,
       max_memory_restart: '128M',
     },
+
+    // Stack with sops-encrypted secrets. The daemon shells out to
+    // `sops decrypt` at startup and exports the resulting KEY=VALUE pairs
+    // into its own env so docker compose can substitute ${VAR} in the YAML.
+    // No wrapper script needed.
+    //
+    // Format is detected from the file extension. JSON is recommended
+    // because its quoting rules are unambiguous; .yaml/.yml and .env
+    // (dotenv) are also supported.
+    {
+      name: 'traefik',
+      script: 'compose-remote',
+      args: [
+        'run',
+        '--name', 'traefik',
+        '--file', '/srv/stacks/traefik/compose.yaml',
+        '--sops-env-file', '/srv/secrets/traefik.json',
+      ],
+      autorestart: true,
+      max_memory_restart: '128M',
+      env: {
+        // sops needs to know how to find the decryption key. For age:
+        SOPS_AGE_KEY_FILE: '/srv/age/keys.txt',
+      },
+    },
   ],
 };
