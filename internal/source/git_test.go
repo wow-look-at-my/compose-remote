@@ -1,0 +1,118 @@
+package source
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func gitOK(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+}
+
+// initBareWithFile creates a bare repo seeded with a single file at path.
+// Returns the bare repo URL (filesystem path) and the resolved commit SHA.
+func initBareWithFile(t *testing.T, path, content string) (repoURL, sha string) {
+	t.Helper()
+	bare := filepath.Join(t.TempDir(), "bare.git")
+	work := t.TempDir()
+
+	run := func(dir string, args ...string) string {
+		// Disable any host-level signing config so commits in tests
+		// don't depend on signing infrastructure.
+		full := append([]string{
+			"-c", "commit.gpgsign=false",
+			"-c", "tag.gpgsign=false",
+			"-c", "gpg.format=openpgp",
+		}, args...)
+		cmd := exec.Command("git", full...)
+		if dir != "" {
+			cmd.Dir = dir
+		}
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_GLOBAL=/dev/null",
+			"GIT_CONFIG_SYSTEM=/dev/null",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("", "init", "--bare", "-b", "main", bare)
+	run("", "clone", bare, work)
+	run(work, "checkout", "-b", "main")
+	abs := filepath.Join(work, path)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(work, "add", path)
+	run(work, "commit", "-m", "init")
+	run(work, "push", "-u", "origin", "main")
+	sha = run(work, "rev-parse", "HEAD")
+	return bare, sha
+}
+
+func TestGitSourceFetch(t *testing.T) {
+	gitOK(t)
+	repo, sha := initBareWithFile(t, "compose.yml", "services: {}\n")
+	dst := filepath.Join(t.TempDir(), "clone")
+
+	g := NewGit(repo, "main", "compose.yml", dst, "")
+	if g.Name() == "" {
+		t.Error("Name() empty")
+	}
+	r, err := g.Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(r.Content) != "services: {}\n" {
+		t.Errorf("Content = %q", r.Content)
+	}
+	if r.Rev != sha {
+		t.Errorf("Rev = %q, want %q", r.Rev, sha)
+	}
+
+	// Second fetch on the same dir reuses the existing clone.
+	r2, err := g.Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r2.Rev != sha {
+		t.Errorf("Rev2 = %q, want %q", r2.Rev, sha)
+	}
+}
+
+func TestGitSourceDefaultPath(t *testing.T) {
+	g := NewGit("repo", "", "", "/tmp/x", "")
+	if g.GitPath != "docker-compose.yml" {
+		t.Errorf("default GitPath = %q", g.GitPath)
+	}
+}
+
+func TestLooksLikeSHA(t *testing.T) {
+	cases := map[string]bool{
+		"abc1234": true,
+		"abcdef1234567890abcdef1234567890abcdef12": true,
+		"main":    false,
+		"":        false,
+		"abc":     false, // too short
+		"xyz1234": false,
+	}
+	for in, want := range cases {
+		if got := looksLikeSHA(in); got != want {
+			t.Errorf("looksLikeSHA(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
