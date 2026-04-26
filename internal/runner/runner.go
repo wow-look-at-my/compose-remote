@@ -50,6 +50,12 @@ func RunOnce(ctx context.Context, cfg Config) error {
 
 // runLoop is the actual loop body. Split out so tests can drive it with
 // a fake Composer and a pre-cancelled or short-lived ctx.
+//
+// Reconcile and pull tickers are merged into a single select so that all
+// docker compose operations run sequentially. Two goroutines hitting
+// `docker compose` for the same project at the same time (e.g. a
+// background `pull` overlapping with a foreground `up`) is racy and
+// causes intermittent failures, so we serialise here.
 func runLoop(ctx context.Context, cfg Config, client reconcile.Composer) error {
 	log.Info("started",
 		log.KV{K: "project", V: cfg.Project},
@@ -59,16 +65,22 @@ func runLoop(ctx context.Context, cfg Config, client reconcile.Composer) error {
 		log.KV{K: "state_dir", V: cfg.State.Path()},
 	)
 
-	if cfg.PullInterval > 0 {
-		go pullLoop(ctx, client, cfg.PullInterval)
-	}
-
 	if err := Tick(ctx, cfg, client); err != nil {
 		log.Warn("first tick failed", log.KV{K: "err", V: err.Error()})
 	}
 
 	t := time.NewTicker(cfg.Interval)
 	defer t.Stop()
+
+	// pullTickC is nil when --pull-interval is unset. A nil channel in a
+	// select is never selected, so the pull case effectively turns off.
+	var pullTickC <-chan time.Time
+	if cfg.PullInterval > 0 {
+		pt := time.NewTicker(cfg.PullInterval)
+		defer pt.Stop()
+		pullTickC = pt.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -78,33 +90,28 @@ func runLoop(ctx context.Context, cfg Config, client reconcile.Composer) error {
 			if err := Tick(ctx, cfg, client); err != nil {
 				log.Warn("tick failed", log.KV{K: "err", V: err.Error()})
 			}
+		case <-pullTickC:
+			periodicPull(ctx, client)
 		}
 	}
 }
 
-// pullLoop periodically runs `docker compose pull` for the whole
-// project. It does NOT trigger a reconcile pass itself: the next
-// regular Tick (within cfg.Interval) will spot image-SHA drift via
-// Diff and recreate any stale containers via the existing apply path.
+// periodicPull runs `docker compose pull` for the whole project. Called
+// from runLoop's select on the --pull-interval ticker, so it cannot
+// overlap with a Tick on the same project. The pull does NOT trigger an
+// immediate reconcile -- the next regular Tick (within cfg.Interval)
+// will spot image-SHA drift via Diff and recreate any stale containers
+// via the existing apply path.
 //
 // Routing image-pull through compose (rather than `docker pull` +
 // `docker run` like watchtower does) is what keeps configs:, secrets:,
 // volumes:, and networks: re-applied correctly on the new container.
-func pullLoop(ctx context.Context, client reconcile.Composer, interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if err := client.Pull(ctx); err != nil {
-				log.Warn("periodic pull failed", log.KV{K: "err", V: err.Error()})
-			} else {
-				log.Info("periodic pull complete")
-			}
-		}
+func periodicPull(ctx context.Context, client reconcile.Composer) {
+	if err := client.Pull(ctx); err != nil {
+		log.Warn("periodic pull failed", log.KV{K: "err", V: err.Error()})
+		return
 	}
+	log.Info("periodic pull complete")
 }
 
 // Tick performs one reconcile cycle: fetch -> parse -> diff -> apply.

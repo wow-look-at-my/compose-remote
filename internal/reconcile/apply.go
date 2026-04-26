@@ -9,8 +9,11 @@ import (
 	"github.com/wow-look-at-my/compose-remote/internal/log"
 )
 
-// Composer is the subset of compose.Client behaviour that Apply uses.
-// Defined here so apply can be tested with a fake.
+// Composer is the subset of compose.Client behaviour that runner.Tick
+// and Apply use. Defined here (rather than in compose) so apply and
+// runner can be tested with a fake without dragging in the real
+// Client. ImageID is consumed by runner.Tick before Diff (not by Apply
+// itself) but lives here because Tick takes the same Composer.
 type Composer interface {
 	Pull(ctx context.Context, services ...string) error
 	Up(ctx context.Context) error

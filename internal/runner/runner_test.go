@@ -219,81 +219,36 @@ func TestRunLoopExitsOnContextCancel(t *testing.T) {
 	assert.Equal(t, 1, cmp.upCalled) // first-tick happened
 }
 
-// TestPullLoopFiresOnTick verifies that when --pull-interval is set, the
-// pullLoop goroutine calls Composer.Pull() on each tick (with no service
-// args, i.e. "pull all"). We use a tiny interval and a context that
-// cancels after the first pull is observed.
-func TestPullLoopFiresOnTick(t *testing.T) {
+// TestPeriodicPullCallsPullAll verifies the periodic-pull helper calls
+// Composer.Pull with no service args (i.e. "pull every service").
+func TestPeriodicPullCallsPullAll(t *testing.T) {
 	cmp := &fakeComposer{}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		pullLoop(ctx, cmp, time.Millisecond)
-		close(done)
-	}()
-
-	// Wait for at least one pull, then cancel.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		cmp.mu.Lock()
-		got := len(cmp.pulled)
-		cmp.mu.Unlock()
-		if got >= 1 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	cancel()
-	<-done
+	periodicPull(context.Background(), cmp)
 
 	cmp.mu.Lock()
 	defer cmp.mu.Unlock()
-	require.GreaterOrEqual(t, len(cmp.pulled), 1)
+	require.Equal(t, 1, len(cmp.pulled))
 
-	assert.Equal(t, 0, len(cmp.pulled[0])) // pull-all => no service args
+	assert.Equal(t, 0, len(cmp.pulled[0])) // no service args
 
 }
 
-// TestPullLoopSurvivesPullError verifies a failing pull is logged but
-// doesn't kill the loop (next tick still fires).
-func TestPullLoopSurvivesPullError(t *testing.T) {
+// TestPeriodicPullSwallowsErrors verifies a failing pull is logged
+// without panicking (so the runLoop select-case can keep going).
+func TestPeriodicPullSwallowsErrors(t *testing.T) {
 	cmp := &fakeComposer{pullErr: errors.New("registry unreachable")}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		pullLoop(ctx, cmp, time.Millisecond)
-		close(done)
-	}()
-
-	// Wait until we've seen at least 2 pull attempts (proving we didn't bail).
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		cmp.mu.Lock()
-		got := len(cmp.pulled)
-		cmp.mu.Unlock()
-		if got >= 2 {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	cancel()
-	<-done
+	periodicPull(context.Background(), cmp) // should not panic
 
 	cmp.mu.Lock()
 	defer cmp.mu.Unlock()
-	assert.GreaterOrEqual(t, len(cmp.pulled), 2)
+	assert.Equal(t, 1, len(cmp.pulled))
 
 }
 
-// TestRunLoopStartsPullLoopWhenIntervalSet smokes the wiring: when
-// PullInterval > 0, runLoop spawns the pull goroutine; when 0 it doesn't.
-func TestRunLoopStartsPullLoopWhenIntervalSet(t *testing.T) {
+// TestRunLoopFiresPeriodicPullWhenIntervalSet smokes the wiring: when
+// PullInterval > 0, runLoop's select fires periodicPull on the same
+// goroutine as Tick (so docker compose calls cannot overlap).
+func TestRunLoopFiresPeriodicPullWhenIntervalSet(t *testing.T) {
 	dir := newDir(t)
 	src := &fakeSource{content: []byte(oneServiceCompose), rev: "v1"}
 	cmp := &fakeComposer{}
@@ -307,8 +262,17 @@ func TestRunLoopStartsPullLoopWhenIntervalSet(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		// Give pullLoop a chance to fire at least once.
-		time.Sleep(50 * time.Millisecond)
+		// Give the pull-tick a chance to fire at least once.
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			cmp.mu.Lock()
+			got := len(cmp.pulled)
+			cmp.mu.Unlock()
+			if got >= 1 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		cancel()
 	}()
 	err := runLoop(ctx, cfg, cmp)
@@ -317,6 +281,36 @@ func TestRunLoopStartsPullLoopWhenIntervalSet(t *testing.T) {
 	cmp.mu.Lock()
 	defer cmp.mu.Unlock()
 	assert.GreaterOrEqual(t, len(cmp.pulled), 1)
+
+}
+
+// TestRunLoopSkipsPullWhenIntervalZero verifies the pull-tick channel
+// is nil when --pull-interval is unset, so runLoop never selects it.
+func TestRunLoopSkipsPullWhenIntervalZero(t *testing.T) {
+	dir := newDir(t)
+	src := &fakeSource{content: []byte(oneServiceCompose), rev: "v1"}
+	cmp := &fakeComposer{}
+	cfg := Config{
+		Source:   src,
+		State:    dir,
+		Project:  "test",
+		Interval: time.Hour,
+		// PullInterval intentionally zero.
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := runLoop(ctx, cfg, cmp)
+	require.NoError(t, err)
+
+	cmp.mu.Lock()
+	defer cmp.mu.Unlock()
+	// Tick may have called Pull through reconcile.Apply for missing
+	// services; what matters is that no *periodic* pull happened.
+	// First-tick path with empty psResult treats the service as missing
+	// and falls into Apply, which only pulls on DriftedImage. Since
+	// PriorContainerID is empty for missing, no pull there either.
+	assert.Equal(t, 0, len(cmp.pulled))
 
 }
 
