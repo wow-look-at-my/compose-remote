@@ -13,6 +13,7 @@ import (
 
 	"github.com/wow-look-at-my/compose-remote/internal/log"
 	"github.com/wow-look-at-my/compose-remote/internal/runner"
+	"github.com/wow-look-at-my/compose-remote/internal/secrets"
 	"github.com/wow-look-at-my/compose-remote/internal/source"
 	"github.com/wow-look-at-my/compose-remote/internal/state"
 )
@@ -26,6 +27,8 @@ var runFlags struct {
 
 	autoUpdate         bool
 	autoUpdateInterval time.Duration
+
+	sopsEnvFiles []string
 
 	source source.Flags
 }
@@ -42,6 +45,10 @@ var runCmd = &cobra.Command{
 		}
 		if runFlags.stateDir == "" {
 			runFlags.stateDir = defaultStateDir()
+		}
+
+		if err := secrets.LoadEnv(cmd.Context(), secrets.SopsCLI, runFlags.sopsEnvFiles); err != nil {
+			return fmt.Errorf("load sops env: %w", err)
 		}
 
 		dir, err := state.New(runFlags.stateDir, runFlags.name)
@@ -82,6 +89,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runFlags.once, "once", false, "perform a single reconcile pass and exit")
 	runCmd.Flags().BoolVar(&runFlags.autoUpdate, "auto-update", true, "periodically check for a newer release and replace the binary (requires pm2 or similar to restart)")
 	runCmd.Flags().DurationVar(&runFlags.autoUpdateInterval, "auto-update-interval", time.Hour, "how often to check for updates")
+	runCmd.Flags().StringSliceVar(&runFlags.sopsEnvFiles, "sops-env-file", nil, "path to a sops-encrypted dotenv file; decrypted values are exported into the daemon process and become available for ${VAR} substitution in the compose file. Repeatable.")
 
 	addSourceFlags(runCmd, &runFlags.source)
 	rootCmd.AddCommand(runCmd)
