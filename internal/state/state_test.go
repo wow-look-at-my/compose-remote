@@ -4,91 +4,74 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestNewCreatesDir(t *testing.T) {
 	root := t.TempDir()
 	d, err := New(root, "stack1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Path() != filepath.Join(root, "stack1") {
-		t.Errorf("Path() = %q", d.Path())
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, filepath.Join(root, "stack1"), d.Path())
+
 	st, err := os.Stat(d.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !st.IsDir() {
-		t.Error("expected dir")
-	}
+	require.Nil(t, err)
+
+	assert.True(t, st.IsDir())
+
 }
 
 func TestNewRequiresArgs(t *testing.T) {
-	if _, err := New("", "x"); err == nil {
-		t.Error("empty root should error")
-	}
-	if _, err := New("/tmp", ""); err == nil {
-		t.Error("empty name should error")
-	}
+	_, err := New("", "x")
+	assert.NotNil(t, err)
+
+	_, err = New("/tmp", "")
+	assert.NotNil(t, err)
 }
 
 func TestComposeFilePath(t *testing.T) {
 	d, err := New(t.TempDir(), "s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Base(d.ComposeFile()) != "compose.yml" {
-		t.Errorf("ComposeFile() = %q", d.ComposeFile())
-	}
-	if filepath.Base(d.GitDir()) != "git" {
-		t.Errorf("GitDir() = %q", d.GitDir())
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, "compose.yml", filepath.Base(d.ComposeFile()))
+
+	assert.Equal(t, "git", filepath.Base(d.GitDir()))
+
 }
 
 func TestWriteComposeAtomicAndIdempotent(t *testing.T) {
 	d, err := New(t.TempDir(), "s")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
+
 	changed, err := d.WriteCompose([]byte("a: 1\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !changed {
-		t.Error("first write should be a change")
-	}
+	require.Nil(t, err)
+
+	assert.True(t, changed)
+
 	// Same content -> not changed.
 	changed, err = d.WriteCompose([]byte("a: 1\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changed {
-		t.Error("rewriting same content should not be a change")
-	}
+	require.Nil(t, err)
+
+	assert.False(t, changed)
+
 	// Different content -> changed.
 	changed, err = d.WriteCompose([]byte("a: 2\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !changed {
-		t.Error("different content should be a change")
-	}
+	require.Nil(t, err)
+
+	assert.True(t, changed)
+
 	got, err := d.ReadCompose()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "a: 2\n" {
-		t.Errorf("ReadCompose = %q", got)
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, "a: 2\n", string(got))
+
 }
 
 func TestReadComposeMissing(t *testing.T) {
 	d, err := New(t.TempDir(), "s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.ReadCompose(); !os.IsNotExist(err) {
-		t.Errorf("expected ErrNotExist, got %v", err)
-	}
+	require.Nil(t, err)
+
+	_, err = d.ReadCompose()
+	assert.True(t, os.IsNotExist(err))
 }

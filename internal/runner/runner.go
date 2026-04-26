@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -31,7 +30,21 @@ func Run(ctx context.Context, cfg Config) error {
 	if err := compose.EnsureAvailable(ctx); err != nil {
 		return fmt.Errorf("docker compose unavailable: %w", err)
 	}
-	client := compose.New(cfg.State.ComposeFile(), cfg.Project)
+	return runLoop(ctx, cfg, compose.New(cfg.State.ComposeFile(), cfg.Project))
+}
+
+// RunOnce performs a single reconcile pass and returns. Used by the
+// `apply` subcommand and by `run --once`.
+func RunOnce(ctx context.Context, cfg Config) error {
+	if err := compose.EnsureAvailable(ctx); err != nil {
+		return fmt.Errorf("docker compose unavailable: %w", err)
+	}
+	return Tick(ctx, cfg, compose.New(cfg.State.ComposeFile(), cfg.Project))
+}
+
+// runLoop is the actual loop body. Split out so tests can drive it with
+// a fake Composer and a pre-cancelled or short-lived ctx.
+func runLoop(ctx context.Context, cfg Config, client reconcile.Composer) error {
 	log.Info("started",
 		log.KV{K: "project", V: cfg.Project},
 		log.KV{K: "source", V: cfg.Source.Name()},
@@ -56,16 +69,6 @@ func Run(ctx context.Context, cfg Config) error {
 			}
 		}
 	}
-}
-
-// RunOnce performs a single reconcile pass and returns. Used by the
-// `apply` subcommand and by `run --once`.
-func RunOnce(ctx context.Context, cfg Config) error {
-	if err := compose.EnsureAvailable(ctx); err != nil {
-		return fmt.Errorf("docker compose unavailable: %w", err)
-	}
-	client := compose.New(cfg.State.ComposeFile(), cfg.Project)
-	return Tick(ctx, cfg, client)
 }
 
 // Tick performs one reconcile cycle: fetch -> parse -> diff -> apply.
@@ -139,5 +142,3 @@ func Tick(ctx context.Context, cfg Config, client reconcile.Composer) error {
 	return nil
 }
 
-// ErrShutdown is returned when the context is cancelled cleanly.
-var ErrShutdown = errors.New("shutdown")

@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestHTTPSourceETagFlow(t *testing.T) {
@@ -24,29 +26,21 @@ func TestHTTPSourceETagFlow(t *testing.T) {
 
 	s := NewHTTP(srv.URL, nil)
 	r1, err := s.Fetch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(r1.Content) != string(body) {
-		t.Errorf("first fetch content = %q", r1.Content)
-	}
-	if r1.Rev != `"v1"` {
-		t.Errorf("first fetch rev = %q", r1.Rev)
-	}
-	if r1.NotModified {
-		t.Error("first fetch should not be NotModified")
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, string(body), string(r1.Content))
+
+	assert.Equal(t, `"v1"`, r1.Rev)
+
+	assert.False(t, r1.NotModified)
 
 	r2, err := s.Fetch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !r2.NotModified {
-		t.Error("second fetch should be NotModified (304 via ETag)")
-	}
-	if r2.Rev != `"v1"` {
-		t.Errorf("second fetch rev = %q", r2.Rev)
-	}
+	require.Nil(t, err)
+
+	assert.True(t, r2.NotModified)
+
+	assert.Equal(t, `"v1"`, r2.Rev)
+
 }
 
 func TestHTTPSourceLastModifiedFallback(t *testing.T) {
@@ -58,12 +52,10 @@ func TestHTTPSourceLastModifiedFallback(t *testing.T) {
 	defer srv.Close()
 	s := NewHTTP(srv.URL, nil)
 	r, err := s.Fetch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Rev != "Wed, 21 Oct 2015 07:28:00 GMT" {
-		t.Errorf("rev = %q", r.Rev)
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, "Wed, 21 Oct 2015 07:28:00 GMT", r.Rev)
+
 }
 
 func TestHTTPSourceErrorStatus(t *testing.T) {
@@ -72,13 +64,12 @@ func TestHTTPSourceErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 	s := NewHTTP(srv.URL, nil)
-	if _, err := s.Fetch(context.Background()); err == nil {
-		t.Error("expected error for 500")
-	}
+	_, err := s.Fetch(context.Background())
+	assert.NotNil(t, err)
+
 }
 
 func TestHTTPSourceName(t *testing.T) {
-	if NewHTTP("https://x", nil).Name() != "http:https://x" {
-		t.Error("Name() format")
-	}
+	assert.Equal(t, "http:https://x", NewHTTP("https://x", nil).Name())
+
 }

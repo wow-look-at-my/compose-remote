@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func gitOK(t *testing.T) {
@@ -42,21 +44,18 @@ func initBareWithFile(t *testing.T, path, content string) (repoURL, sha string) 
 			"GIT_CONFIG_SYSTEM=/dev/null",
 		)
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
-		}
+		require.Nil(t, err)
+
 		return strings.TrimSpace(string(out))
 	}
 	run("", "init", "--bare", "-b", "main", bare)
 	run("", "clone", bare, work)
 	run(work, "checkout", "-b", "main")
 	abs := filepath.Join(work, path)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Dir(abs), 0o755))
+
+	require.NoError(t, os.WriteFile(abs, []byte(content), 0o644))
+
 	run(work, "add", path)
 	run(work, "commit", "-m", "init")
 	run(work, "push", "-u", "origin", "main")
@@ -70,49 +69,41 @@ func TestGitSourceFetch(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "clone")
 
 	g := NewGit(repo, "main", "compose.yml", dst, "")
-	if g.Name() == "" {
-		t.Error("Name() empty")
-	}
+	assert.NotEqual(t, "", g.Name())
+
 	r, err := g.Fetch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(r.Content) != "services: {}\n" {
-		t.Errorf("Content = %q", r.Content)
-	}
-	if r.Rev != sha {
-		t.Errorf("Rev = %q, want %q", r.Rev, sha)
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, "services: {}\n", string(r.Content))
+
+	assert.Equal(t, sha, r.Rev)
 
 	// Second fetch on the same dir reuses the existing clone.
 	r2, err := g.Fetch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r2.Rev != sha {
-		t.Errorf("Rev2 = %q, want %q", r2.Rev, sha)
-	}
+	require.Nil(t, err)
+
+	assert.Equal(t, sha, r2.Rev)
+
 }
 
 func TestGitSourceDefaultPath(t *testing.T) {
 	g := NewGit("repo", "", "", "/tmp/x", "")
-	if g.GitPath != "docker-compose.yml" {
-		t.Errorf("default GitPath = %q", g.GitPath)
-	}
+	assert.Equal(t, "docker-compose.yml", g.GitPath)
+
 }
 
 func TestLooksLikeSHA(t *testing.T) {
 	cases := map[string]bool{
-		"abc1234": true,
-		"abcdef1234567890abcdef1234567890abcdef12": true,
-		"main":    false,
-		"":        false,
-		"abc":     false, // too short
-		"xyz1234": false,
+		"abc1234":	true,
+		"abcdef1234567890abcdef1234567890abcdef12":	true,
+		"main":		false,
+		"":		false,
+		"abc":		false,	// too short
+		"xyz1234":	false,
 	}
 	for in, want := range cases {
-		if got := looksLikeSHA(in); got != want {
-			t.Errorf("looksLikeSHA(%q) = %v, want %v", in, got, want)
-		}
+		got := looksLikeSHA(in)
+		assert.Equal(t, want, got)
+
 	}
 }

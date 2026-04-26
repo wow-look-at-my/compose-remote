@@ -1,62 +1,59 @@
 package source
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestFactoryNoFlags(t *testing.T) {
-	if _, err := New(Flags{}); err == nil {
-		t.Error("expected error when no flag is set")
-	} else if !strings.Contains(err.Error(), "required") {
-		t.Errorf("expected 'required' error, got %v", err)
-	}
+	_, err := New(Flags{})
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "required")
 }
 
 func TestFactoryConflictingFlags(t *testing.T) {
-	if _, err := New(Flags{File: "/a", URL: "https://b"}); err == nil {
-		t.Error("expected mutually-exclusive error")
-	}
+	_, err := New(Flags{File: "/a", URL: "https://b"})
+	assert.NotNil(t, err)
+
 }
 
 func TestFactoryFile(t *testing.T) {
 	s, err := New(Flags{File: "compose.yml"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := s.(*FileSource); !ok {
-		t.Errorf("got %T, want *FileSource", s)
-	}
+	require.Nil(t, err)
+
+	_, ok := s.(*FileSource)
+	assert.True(t, ok)
+
 }
 
 func TestFactoryHTTP(t *testing.T) {
 	s, err := New(Flags{URL: "https://example.com/compose.yml"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := s.(*HTTPSource); !ok {
-		t.Errorf("got %T, want *HTTPSource", s)
-	}
+	require.Nil(t, err)
+
+	_, ok := s.(*HTTPSource)
+	assert.True(t, ok)
+
 }
 
 func TestFactoryHTTPBadScheme(t *testing.T) {
-	if _, err := New(Flags{URL: "ftp://example.com"}); err == nil {
-		t.Error("expected error for non-http scheme")
-	}
+	_, err := New(Flags{URL: "ftp://example.com"})
+	assert.NotNil(t, err)
+
 }
 
 func TestFactoryGit(t *testing.T) {
 	s, err := New(Flags{Git: "https://example.com/x.git", StateDir: "/tmp/x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := s.(*GitSource); !ok {
-		t.Errorf("got %T, want *GitSource", s)
-	}
+	require.Nil(t, err)
+
+	_, ok := s.(*GitSource)
+	assert.True(t, ok)
+
 }
 
 func TestFactoryGitNoStateDir(t *testing.T) {
-	if _, err := New(Flags{Git: "https://example.com/x.git"}); err == nil {
-		t.Error("expected error without state dir")
-	}
+	_, err := New(Flags{Git: "https://example.com/x.git"})
+	assert.NotNil(t, err)
+
 }

@@ -5,24 +5,24 @@ import (
 	"time"
 
 	"github.com/wow-look-at-my/compose-remote/internal/compose"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func mkDesired() map[string]compose.Service {
 	return map[string]compose.Service{
-		"web":   {Name: "web", Hash: "h1", Image: "nginx:1.25"},
-		"cache": {Name: "cache", Hash: "h2", Image: "redis:7"},
+		"web":		{Name: "web", Hash: "h1", Image: "nginx:1.25"},
+		"cache":	{Name: "cache", Hash: "h2", Image: "redis:7"},
 	}
 }
 
 func TestDiffMissing(t *testing.T) {
 	got := Diff(mkDesired(), nil)
-	if len(got) != 2 {
-		t.Fatalf("len = %d, want 2", len(got))
-	}
+	require.Equal(t, 2, len(got))
+
 	for _, it := range got {
-		if it.Reason != Missing {
-			t.Errorf("%s: reason = %s", it.Service, it.Reason)
-		}
+		assert.Equal(t, Missing, it.Reason)
+
 	}
 }
 
@@ -32,9 +32,8 @@ func TestDiffInSync(t *testing.T) {
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running"},
 	}
 	got := Diff(mkDesired(), actual)
-	if len(got) != 0 {
-		t.Errorf("expected empty diff, got %#v", got)
-	}
+	assert.Equal(t, 0, len(got))
+
 }
 
 func TestDiffDriftedConfig(t *testing.T) {
@@ -43,12 +42,10 @@ func TestDiffDriftedConfig(t *testing.T) {
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running"},
 	}
 	got := Diff(mkDesired(), actual)
-	if len(got) != 1 || got[0].Service != "web" || got[0].Reason != DriftedConfig {
-		t.Errorf("diff = %#v", got)
-	}
-	if got[0].PriorContainerID != "1" {
-		t.Errorf("PriorContainerID = %q", got[0].PriorContainerID)
-	}
+	assert.False(t, len(got) != 1 || got[0].Service != "web" || got[0].Reason != DriftedConfig)
+
+	assert.Equal(t, "1", got[0].PriorContainerID)
+
 }
 
 func TestDiffDriftedImage(t *testing.T) {
@@ -57,9 +54,8 @@ func TestDiffDriftedImage(t *testing.T) {
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running"},
 	}
 	got := Diff(mkDesired(), actual)
-	if len(got) != 1 || got[0].Reason != DriftedImage {
-		t.Errorf("diff = %#v", got)
-	}
+	assert.False(t, len(got) != 1 || got[0].Reason != DriftedImage)
+
 }
 
 func TestDiffUnhealthy(t *testing.T) {
@@ -68,13 +64,11 @@ func TestDiffUnhealthy(t *testing.T) {
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "exited", ExitCode: 1},
 	}
 	got := Diff(mkDesired(), actual)
-	if len(got) != 2 {
-		t.Fatalf("got %d items: %#v", len(got), got)
-	}
+	require.Equal(t, 2, len(got))
+
 	for _, it := range got {
-		if it.Reason != Unhealthy {
-			t.Errorf("%s: reason = %s", it.Service, it.Reason)
-		}
+		assert.Equal(t, Unhealthy, it.Reason)
+
 	}
 }
 
@@ -88,32 +82,29 @@ func TestDiffPicksMostRecentDuplicate(t *testing.T) {
 		"web": {Name: "web", Hash: "h1", Image: "nginx:1.25"},
 	}
 	got := Diff(desired, actual)
-	if len(got) != 0 {
-		t.Errorf("most-recent should be in-sync, got %#v", got)
-	}
+	assert.Equal(t, 0, len(got))
+
 }
 
 func TestDiffDeterministicOrder(t *testing.T) {
 	// Two missing services: order must be alphabetical.
 	desired := map[string]compose.Service{
-		"zeta":  {Name: "zeta"},
-		"alpha": {Name: "alpha"},
+		"zeta":		{Name: "zeta"},
+		"alpha":	{Name: "alpha"},
 	}
 	got := Diff(desired, nil)
-	if got[0].Service != "alpha" || got[1].Service != "zeta" {
-		t.Errorf("order = %v", []string{got[0].Service, got[1].Service})
-	}
+	assert.False(t, got[0].Service != "alpha" || got[1].Service != "zeta")
+
 }
 
 func TestPullSet(t *testing.T) {
 	items := []Item{
 		{Service: "a", Reason: DriftedImage},
 		{Service: "b", Reason: DriftedConfig},
-		{Service: "a", Reason: DriftedImage}, // dup
+		{Service: "a", Reason: DriftedImage},	// dup
 		{Service: "c", Reason: Missing},
 	}
 	got := PullSet(items)
-	if len(got) != 1 || got[0] != "a" {
-		t.Errorf("PullSet = %v", got)
-	}
+	assert.False(t, len(got) != 1 || got[0] != "a")
+
 }

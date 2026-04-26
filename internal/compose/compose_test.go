@@ -6,18 +6,20 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 type fakeRunner struct {
-	composeOut string
-	composeErr error
-	composeLog [][]string
+	composeOut	string
+	composeErr	error
+	composeLog	[][]string
 
-	inspectOut map[string]string
-	inspectErr error
-	inspectLog []string
+	inspectOut	map[string]string
+	inspectErr	error
+	inspectLog	[]string
 
-	versionErr error
+	versionErr	error
 }
 
 func (f *fakeRunner) composeArgs(_ context.Context, file, project string, args ...string) (string, error) {
@@ -50,128 +52,110 @@ func (f *fakeRunner) version(_ context.Context) (string, error) {
 func TestParsePsArrayForm(t *testing.T) {
 	in := `[{"ID":"abc","Name":"p-web-1","Service":"web","Image":"nginx","State":"running","Health":"healthy","ExitCode":0}]`
 	got, err := parsePs(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Service != "web" {
-		t.Errorf("parsed = %#v", got)
-	}
+	require.Nil(t, err)
+
+	assert.False(t, len(got) != 1 || got[0].Service != "web")
+
 }
 
 func TestParsePsLineForm(t *testing.T) {
 	in := `{"ID":"a","Name":"p-web-1","Service":"web","Image":"nginx","State":"running","Health":"","ExitCode":0}
 {"ID":"b","Name":"p-cache-1","Service":"cache","Image":"redis","State":"running","Health":"","ExitCode":0}`
 	got, err := parsePs(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("len = %d", len(got))
-	}
-	if got[0].Service != "web" || got[1].Service != "cache" {
-		t.Errorf("parsed = %#v", got)
-	}
+	require.Nil(t, err)
+
+	require.Equal(t, 2, len(got))
+
+	assert.False(t, got[0].Service != "web" || got[1].Service != "cache")
+
 }
 
 func TestParsePsEmpty(t *testing.T) {
 	got, err := parsePs("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Errorf("expected nil, got %#v", got)
-	}
+	require.Nil(t, err)
+
+	assert.Nil(t, got)
+
 }
 
 func TestParsePsBadArrayJSON(t *testing.T) {
-	if _, err := parsePs("[not json"); err == nil {
-		t.Error("expected error")
-	}
+	_, err := parsePs("[not json")
+	assert.NotNil(t, err)
+
 }
 
 func TestParsePsBadLineJSON(t *testing.T) {
-	if _, err := parsePs("not json"); err == nil {
-		t.Error("expected error")
-	}
+	_, err := parsePs("not json")
+	assert.NotNil(t, err)
+
 }
 
 func TestNewClient(t *testing.T) {
 	c := New("/tmp/c.yml", "proj")
-	if c.File != "/tmp/c.yml" || c.Project != "proj" {
-		t.Errorf("client = %+v", c)
-	}
-	if c.r == nil {
-		t.Error("runner not initialised")
-	}
+	assert.False(t, c.File != "/tmp/c.yml" || c.Project != "proj")
+
+	assert.NotNil(t, c.r)
+
 }
 
 func TestPullPassesServices(t *testing.T) {
 	r := &fakeRunner{}
 	c := &Client{File: "f", Project: "p", r: r}
-	if err := c.Pull(context.Background(), "web", "cache"); err != nil {
-		t.Fatal(err)
-	}
-	if len(r.composeLog) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(r.composeLog))
-	}
+	require.NoError(t, c.Pull(context.Background(), "web", "cache"))
+
+	require.Equal(t, 1, len(r.composeLog))
+
 	args := r.composeLog[0]
 	want := []string{"f", "p", "pull", "web", "cache"}
 	for i, w := range want {
-		if i >= len(args) || args[i] != w {
-			t.Errorf("arg[%d] = %q, want %q (full: %v)", i, args[i], w, args)
-		}
+		assert.False(t, i >= len(args) || args[i] != w)
+
 	}
 }
 
 func TestPullNoArgs(t *testing.T) {
 	r := &fakeRunner{}
 	c := &Client{File: "f", Project: "p", r: r}
-	if err := c.Pull(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.Pull(context.Background()))
+
 	args := r.composeLog[0]
 	// args = [f, p, pull]
-	if args[len(args)-1] != "pull" {
-		t.Errorf("expected last arg 'pull', got %v", args)
-	}
+	assert.Equal(t, "pull", args[len(args)-1])
+
 }
 
 func TestUpIncludesWait(t *testing.T) {
 	r := &fakeRunner{}
 	c := &Client{File: "f", Project: "p", r: r}
-	if err := c.Up(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.Up(context.Background()))
+
 	got := strings.Join(r.composeLog[0], " ")
 	for _, want := range []string{"up", "-d", "--remove-orphans", "--wait"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("Up missing %q in %q", want, got)
-		}
+		assert.Contains(t, got, want)
+
 	}
 }
 
 func TestForceRecreateIncludesWaitAndNoDeps(t *testing.T) {
 	r := &fakeRunner{}
 	c := &Client{File: "f", Project: "p", r: r}
-	if err := c.ForceRecreate(context.Background(), "web"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, c.ForceRecreate(context.Background(), "web"))
+
 	got := strings.Join(r.composeLog[0], " ")
 	for _, want := range []string{"--force-recreate", "--no-deps", "--wait", "web"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("ForceRecreate missing %q in %q", want, got)
-		}
+		assert.Contains(t, got, want)
+
 	}
 }
 
 func TestPsParsesAndEnriches(t *testing.T) {
 	r := &fakeRunner{
-		composeOut: `[{"ID":"abc","Service":"web","Image":"nginx","State":"running"}]`,
+		composeOut:	`[{"ID":"abc","Service":"web","Image":"nginx","State":"running"}]`,
 		inspectOut: map[string]string{
 			"abc": mustJSON([]map[string]any{
 				{
-					"Created": "2024-01-02T03:04:05Z",
-					"Image":   "sha256:imgid",
+					"Created":	"2024-01-02T03:04:05Z",
+					"Image":	"sha256:imgid",
 					"Config": map[string]any{
 						"Labels": map[string]string{
 							"com.docker.compose.config-hash": "deadbeef",
@@ -183,62 +167,57 @@ func TestPsParsesAndEnriches(t *testing.T) {
 	}
 	c := &Client{File: "f", Project: "p", r: r}
 	got, err := c.Ps(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("len = %d", len(got))
-	}
-	if got[0].ConfigHash != "deadbeef" {
-		t.Errorf("ConfigHash = %q", got[0].ConfigHash)
-	}
-	if got[0].ImageID != "sha256:imgid" {
-		t.Errorf("ImageID = %q", got[0].ImageID)
-	}
-	if got[0].CreatedAt.IsZero() {
-		t.Error("CreatedAt unset")
-	}
+	require.Nil(t, err)
+
+	require.Equal(t, 1, len(got))
+
+	assert.Equal(t, "deadbeef", got[0].ConfigHash)
+
+	assert.Equal(t, "sha256:imgid", got[0].ImageID)
+
+	assert.False(t, got[0].CreatedAt.IsZero())
+
 }
 
 func TestPsInspectError(t *testing.T) {
 	r := &fakeRunner{
-		composeOut: `[{"ID":"abc","Service":"web"}]`,
-		inspectErr: errors.New("inspect boom"),
+		composeOut:	`[{"ID":"abc","Service":"web"}]`,
+		inspectErr:	errors.New("inspect boom"),
 	}
 	c := &Client{File: "f", Project: "p", r: r}
-	if _, err := c.Ps(context.Background()); err == nil {
-		t.Error("expected inspect error")
-	}
+	_, err := c.Ps(context.Background())
+	assert.NotNil(t, err)
+
 }
 
 func TestPsComposeError(t *testing.T) {
 	r := &fakeRunner{composeErr: errors.New("compose boom")}
 	c := &Client{File: "f", Project: "p", r: r}
-	if _, err := c.Ps(context.Background()); err == nil {
-		t.Error("expected compose error")
-	}
+	_, err := c.Ps(context.Background())
+	assert.NotNil(t, err)
+
 }
 
 func TestEnrichEmptyResult(t *testing.T) {
 	r := &fakeRunner{
-		composeOut: `[{"ID":"abc","Service":"web"}]`,
-		inspectOut: map[string]string{"abc": "[]"},
+		composeOut:	`[{"ID":"abc","Service":"web"}]`,
+		inspectOut:	map[string]string{"abc": "[]"},
 	}
 	c := &Client{File: "f", Project: "p", r: r}
-	if _, err := c.Ps(context.Background()); err == nil {
-		t.Error("expected error for empty inspect result")
-	}
+	_, err := c.Ps(context.Background())
+	assert.NotNil(t, err)
+
 }
 
 func TestEnrichBadInspectJSON(t *testing.T) {
 	r := &fakeRunner{
-		composeOut: `[{"ID":"abc","Service":"web"}]`,
-		inspectOut: map[string]string{"abc": "not json"},
+		composeOut:	`[{"ID":"abc","Service":"web"}]`,
+		inspectOut:	map[string]string{"abc": "not json"},
 	}
 	c := &Client{File: "f", Project: "p", r: r}
-	if _, err := c.Ps(context.Background()); err == nil {
-		t.Error("expected json parse error")
-	}
+	_, err := c.Ps(context.Background())
+	assert.NotNil(t, err)
+
 }
 
 func TestRunDockerNotFound(t *testing.T) {
@@ -246,9 +225,9 @@ func TestRunDockerNotFound(t *testing.T) {
 	// at least check the wrapper returns an error for an obviously bad
 	// invocation by overriding PATH.
 	t.Setenv("PATH", "/nonexistent")
-	if err := EnsureAvailable(context.Background()); err == nil {
-		t.Error("expected error when docker not on PATH")
-	}
+	err := EnsureAvailable(context.Background())
+	assert.NotNil(t, err)
+
 }
 
 // mustJSON is a tiny helper for fixtures.

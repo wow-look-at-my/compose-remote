@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 const baseCompose = `services:
@@ -21,41 +23,36 @@ const baseCompose = `services:
 func parseOK(t *testing.T, content, dir string) *Parsed {
 	t.Helper()
 	p, err := Parse([]byte(content), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
+
 	return p
 }
 
 func TestParseEmitsTwoServices(t *testing.T) {
 	p := parseOK(t, baseCompose, t.TempDir())
-	if len(p.Services()) != 2 {
-		t.Fatalf("want 2 services, got %d", len(p.Services()))
-	}
-	if _, ok := p.Services()["web"]; !ok {
-		t.Error("missing web")
-	}
-	if _, ok := p.Services()["cache"]; !ok {
-		t.Error("missing cache")
-	}
+	require.Equal(t, 2, len(p.Services()))
+
+	_, ok := p.Services()["web"]
+	assert.True(t, ok)
+
+	_, ok = p.Services()["cache"]
+	assert.True(t, ok)
 }
 
 func TestParseRejectsEmpty(t *testing.T) {
-	if _, err := Parse([]byte(""), ""); err == nil {
-		t.Error("expected error for empty input")
-	}
-	if _, err := Parse([]byte("foo: bar\n"), ""); err == nil {
-		t.Error("expected error when services: missing")
-	}
+	_, err := Parse([]byte(""), "")
+	assert.NotNil(t, err)
+
+	_, err = Parse([]byte("foo: bar\n"), "")
+	assert.NotNil(t, err)
 }
 
 func TestHashStableAcrossParses(t *testing.T) {
 	dir := t.TempDir()
 	a := parseOK(t, baseCompose, dir)
 	b := parseOK(t, baseCompose, dir)
-	if a.Services()["web"].Hash != b.Services()["web"].Hash {
-		t.Error("hash should be stable across parses of the same content")
-	}
+	assert.Equal(t, b.Services()["web"].Hash, a.Services()["web"].Hash)
+
 }
 
 func TestHashChangesPerService(t *testing.T) {
@@ -65,49 +62,41 @@ func TestHashChangesPerService(t *testing.T) {
 	mutated := strings.Replace(baseCompose, "FOO: bar", "FOO: baz", 1)
 	b := parseOK(t, mutated, dir)
 
-	if a.Services()["web"].Hash == b.Services()["web"].Hash {
-		t.Error("web hash should change when its env changed")
-	}
-	if a.Services()["cache"].Hash != b.Services()["cache"].Hash {
-		t.Error("cache hash should not change when only web changed")
-	}
+	assert.NotEqual(t, b.Services()["web"].Hash, a.Services()["web"].Hash)
+
+	assert.Equal(t, b.Services()["cache"].Hash, a.Services()["cache"].Hash)
+
 }
 
 func TestHashIncludesEnvFileContent(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "web.env")
-	if err := os.WriteFile(envPath, []byte("X=1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(envPath, []byte("X=1\n"), 0o644))
+
 	yml := `services:
   web:
     image: nginx
     env_file: web.env
 `
 	a := parseOK(t, yml, dir)
-	if err := os.WriteFile(envPath, []byte("X=2\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(envPath, []byte("X=2\n"), 0o644))
+
 	b := parseOK(t, yml, dir)
-	if a.Services()["web"].Hash == b.Services()["web"].Hash {
-		t.Error("hash must change when env_file content changes (the docker compose bug case)")
-	}
+	assert.NotEqual(t, b.Services()["web"].Hash, a.Services()["web"].Hash)
+
 }
 
 func TestMarshalInjectsLabel(t *testing.T) {
 	p := parseOK(t, baseCompose, t.TempDir())
 	out, err := p.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.Nil(t, err)
+
 	s := string(out)
-	if !strings.Contains(s, LabelHash) {
-		t.Errorf("marshalled output missing %s label:\n%s", LabelHash, s)
-	}
+	assert.Contains(t, s, LabelHash)
+
 	// The hash for web should appear in the rendered file.
-	if !strings.Contains(s, p.Services()["web"].Hash) {
-		t.Error("web hash not in rendered file")
-	}
+	assert.Contains(t, s, p.Services()["web"].Hash)
+
 }
 
 func TestInjectLabelListForm(t *testing.T) {
@@ -121,9 +110,8 @@ func TestInjectLabelListForm(t *testing.T) {
 	p := parseOK(t, yml, t.TempDir())
 	out, _ := p.Marshal()
 	s := string(out)
-	if !strings.Contains(s, LabelHash+"="+p.Services()["web"].Hash) {
-		t.Errorf("list-form labels: missing entry %q in:\n%s", LabelHash, s)
-	}
+	assert.Contains(t, s, LabelHash+"="+p.Services()["web"].Hash)
+
 }
 
 func TestInjectLabelOverwrite(t *testing.T) {
@@ -136,19 +124,75 @@ func TestInjectLabelOverwrite(t *testing.T) {
 	p := parseOK(t, yml, t.TempDir())
 	out, _ := p.Marshal()
 	s := string(out)
-	if strings.Contains(s, "stale") {
-		t.Errorf("expected stale value to be overwritten, got:\n%s", s)
-	}
+	assert.NotContains(t, s, "stale")
+
+}
+
+func TestRoundTripStableWithListLabels(t *testing.T) {
+	yml := `services:
+  web:
+    image: nginx
+    labels:
+      - app=web
+`
+	dir := t.TempDir()
+	a := parseOK(t, yml, dir)
+	rendered, err := a.Marshal()
+	require.NoError(t, err)
+	b, err := Parse(rendered, dir)
+	require.NoError(t, err)
+	// Hashes must match across a Parse->Marshal->Parse round-trip.
+	assert.Equal(t, a.Services()["web"].Hash, b.Services()["web"].Hash)
+}
+
+func TestRoundTripStableWithMapLabels(t *testing.T) {
+	yml := `services:
+  web:
+    image: nginx
+    labels:
+      app: web
+`
+	dir := t.TempDir()
+	a := parseOK(t, yml, dir)
+	rendered, err := a.Marshal()
+	require.NoError(t, err)
+	b, err := Parse(rendered, dir)
+	require.NoError(t, err)
+	assert.Equal(t, a.Services()["web"].Hash, b.Services()["web"].Hash)
+}
+
+func TestRoundTripStableWithNoLabels(t *testing.T) {
+	yml := `services:
+  web:
+    image: nginx
+`
+	dir := t.TempDir()
+	a := parseOK(t, yml, dir)
+	rendered, err := a.Marshal()
+	require.NoError(t, err)
+	b, err := Parse(rendered, dir)
+	require.NoError(t, err)
+	assert.Equal(t, a.Services()["web"].Hash, b.Services()["web"].Hash)
+}
+
+func TestParseMissingEnvFile(t *testing.T) {
+	// env_file pointing at a missing file should not crash; the hash
+	// just bakes in the "missing" marker.
+	yml := `services:
+  web:
+    image: nginx
+    env_file: nonexistent.env
+`
+	p := parseOK(t, yml, t.TempDir())
+	assert.NotEqual(t, "", p.Services()["web"].Hash)
 }
 
 func TestEnvFileSequenceForms(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a.env"), []byte("A=1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.env"), []byte("B=2"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.env"), []byte("A=1"), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.env"), []byte("B=2"), 0o644))
+
 	yml := `services:
   web:
     image: nginx
@@ -157,10 +201,8 @@ func TestEnvFileSequenceForms(t *testing.T) {
       - path: b.env
 `
 	p, err := Parse([]byte(yml), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Services()["web"].Hash == "" {
-		t.Error("hash unexpectedly empty")
-	}
+	require.Nil(t, err)
+
+	assert.NotEqual(t, "", p.Services()["web"].Hash)
+
 }

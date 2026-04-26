@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"github.com/wow-look-at-my/testify/assert"
+	"github.com/wow-look-at-my/testify/require"
 )
 
 func TestEmitFormat(t *testing.T) {
@@ -15,8 +17,8 @@ func TestEmitFormat(t *testing.T) {
 	// public API writes to os.Stdout/Stderr, so cover formatValue here
 	// and exercise the public funcs by smoke-testing they don't panic.
 	cases := []struct {
-		v    any
-		want string
+		v	any
+		want	string
 	}{
 		{"plain", "plain"},
 		{"has space", `"has space"`},
@@ -25,11 +27,10 @@ func TestEmitFormat(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := formatValue(c.v)
-		if got != c.want {
-			t.Errorf("formatValue(%v) = %q, want %q", c.v, got, c.want)
-		}
+		assert.Equal(t, c.want, got)
+
 	}
-	_ = buf // unused; here to prove no IO is required
+	_ = buf	// unused; here to prove no IO is required
 }
 
 func TestPublicEmittersDoNotPanic(t *testing.T) {
@@ -46,7 +47,6 @@ func TestEmitsContainTimestamp(t *testing.T) {
 	// Build the line manually mirroring emit's logic to assert format
 	// without touching stdout.
 	got := formatValue("a b")
-	if !strings.HasPrefix(got, `"`) {
-		t.Fatalf("expected quoted, got %q", got)
-	}
+	require.True(t, strings.HasPrefix(got, `"`))
+
 }
