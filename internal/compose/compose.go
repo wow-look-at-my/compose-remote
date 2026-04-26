@@ -19,6 +19,8 @@ type runner interface {
 	composeArgs(ctx context.Context, file, project string, args ...string) (string, error)
 	// inspect runs `docker inspect <id>`.
 	inspect(ctx context.Context, id string) (string, error)
+	// imageInspect runs `docker image inspect --format={{.Id}} <image>`.
+	imageInspect(ctx context.Context, image string) (string, error)
 	// version runs `docker compose version` (used by EnsureAvailable).
 	version(ctx context.Context) (string, error)
 }
@@ -147,6 +149,36 @@ func (c *Client) Pull(ctx context.Context, services ...string) error {
 	return err
 }
 
+// ImageID returns the SHA digest of the locally cached image with the
+// given reference (e.g. "traefik:v3"). Returns an empty string and a
+// nil error if the image is not present locally -- callers should treat
+// that as "no drift detectable" rather than as a failure, since periodic
+// pulls may not have populated the cache yet.
+func (c *Client) ImageID(ctx context.Context, image string) (string, error) {
+	out, err := c.r.imageInspect(ctx, image)
+	if err != nil {
+		if isImageNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// isImageNotFound matches the stderr substring docker emits when
+// `image inspect` is asked about a tag that hasn't been pulled. We
+// intentionally don't try to parse exit codes here: the message format
+// is stable enough across recent docker versions and the cost of a
+// false negative is minor (we'd just refuse to detect SHA drift on
+// that one image).
+func isImageNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "No such image") || strings.Contains(s, "no such image")
+}
+
 // Up runs `up -d --remove-orphans --wait`. The --wait is non-negotiable:
 // without it the bug-fix pass races against unstarted containers.
 func (c *Client) Up(ctx context.Context) error {
@@ -172,6 +204,10 @@ func (realRunner) composeArgs(ctx context.Context, file, project string, args ..
 
 func (realRunner) inspect(ctx context.Context, id string) (string, error) {
 	return runDocker(ctx, "inspect", id)
+}
+
+func (realRunner) imageInspect(ctx context.Context, image string) (string, error) {
+	return runDocker(ctx, "image", "inspect", "--format={{.Id}}", image)
 }
 
 func (realRunner) version(ctx context.Context) (string, error) {

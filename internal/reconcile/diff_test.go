@@ -17,7 +17,7 @@ func mkDesired() map[string]compose.Service {
 }
 
 func TestDiffMissing(t *testing.T) {
-	got := Diff(mkDesired(), nil)
+	got := Diff(mkDesired(), nil, nil)
 	require.Equal(t, 2, len(got))
 
 	for _, it := range got {
@@ -31,7 +31,7 @@ func TestDiffInSync(t *testing.T) {
 		{ID: "1", Service: "web", Image: "nginx:1.25", ConfigHash: "h1", State: "running"},
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running"},
 	}
-	got := Diff(mkDesired(), actual)
+	got := Diff(mkDesired(), actual, nil)
 	assert.Equal(t, 0, len(got))
 
 }
@@ -41,7 +41,7 @@ func TestDiffDriftedConfig(t *testing.T) {
 		{ID: "1", Service: "web", Image: "nginx:1.25", ConfigHash: "stale", State: "running"},
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running"},
 	}
-	got := Diff(mkDesired(), actual)
+	got := Diff(mkDesired(), actual, nil)
 	assert.False(t, len(got) != 1 || got[0].Service != "web" || got[0].Reason != DriftedConfig)
 
 	assert.Equal(t, "1", got[0].PriorContainerID)
@@ -53,7 +53,7 @@ func TestDiffDriftedImage(t *testing.T) {
 		{ID: "1", Service: "web", Image: "nginx:1.24", ConfigHash: "h1", State: "running"},
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running"},
 	}
-	got := Diff(mkDesired(), actual)
+	got := Diff(mkDesired(), actual, nil)
 	assert.False(t, len(got) != 1 || got[0].Reason != DriftedImage)
 
 }
@@ -63,7 +63,7 @@ func TestDiffUnhealthy(t *testing.T) {
 		{ID: "1", Service: "web", Image: "nginx:1.25", ConfigHash: "h1", State: "running", Health: "unhealthy"},
 		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "exited", ExitCode: 1},
 	}
-	got := Diff(mkDesired(), actual)
+	got := Diff(mkDesired(), actual, nil)
 	require.Equal(t, 2, len(got))
 
 	for _, it := range got {
@@ -81,7 +81,45 @@ func TestDiffPicksMostRecentDuplicate(t *testing.T) {
 	desired := map[string]compose.Service{
 		"web": {Name: "web", Hash: "h1", Image: "nginx:1.25"},
 	}
-	got := Diff(desired, actual)
+	got := Diff(desired, actual, nil)
+	assert.Equal(t, 0, len(got))
+
+}
+
+func TestDiffSHADriftSameTagNewerLocalImage(t *testing.T) {
+	// Image string in YAML is unchanged; running container's ImageID
+	// is older than the locally cached one (a recent pull updated the
+	// tag). Diff must flag DriftedImage so the apply pass force-recreates.
+	actual := []compose.Container{
+		{ID: "1", Service: "web", Image: "nginx:1.25", ConfigHash: "h1", State: "running", ImageID: "sha256:old"},
+		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running", ImageID: "sha256:redisid"},
+	}
+	localIDs := map[string]string{
+		"nginx:1.25": "sha256:new",
+		"redis:7":    "sha256:redisid",
+	}
+	got := Diff(mkDesired(), actual, localIDs)
+	require.Equal(t, 1, len(got))
+
+	assert.Equal(t, "web", got[0].Service)
+
+	assert.Equal(t, DriftedImage, got[0].Reason)
+
+	assert.Equal(t, "1", got[0].PriorContainerID)
+
+}
+
+func TestDiffSHANoDriftWhenLocalImageMissing(t *testing.T) {
+	// Image isn't in the local cache (empty SHA): we must NOT flag drift.
+	actual := []compose.Container{
+		{ID: "1", Service: "web", Image: "nginx:1.25", ConfigHash: "h1", State: "running", ImageID: "sha256:foo"},
+		{ID: "2", Service: "cache", Image: "redis:7", ConfigHash: "h2", State: "running", ImageID: "sha256:bar"},
+	}
+	localIDs := map[string]string{
+		"nginx:1.25": "",
+		"redis:7":    "",
+	}
+	got := Diff(mkDesired(), actual, localIDs)
 	assert.Equal(t, 0, len(got))
 
 }
@@ -92,7 +130,7 @@ func TestDiffDeterministicOrder(t *testing.T) {
 		"zeta":		{Name: "zeta"},
 		"alpha":	{Name: "alpha"},
 	}
-	got := Diff(desired, nil)
+	got := Diff(desired, nil, nil)
 	assert.False(t, got[0].Service != "alpha" || got[1].Service != "zeta")
 
 }

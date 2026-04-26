@@ -19,6 +19,10 @@ type fakeRunner struct {
 	inspectErr	error
 	inspectLog	[]string
 
+	imageInspectOut	map[string]string
+	imageInspectErr	map[string]error
+	imageInspectLog	[]string
+
 	versionErr	error
 }
 
@@ -40,6 +44,19 @@ func (f *fakeRunner) inspect(_ context.Context, id string) (string, error) {
 		return v, nil
 	}
 	return "[]", nil
+}
+
+func (f *fakeRunner) imageInspect(_ context.Context, image string) (string, error) {
+	f.imageInspectLog = append(f.imageInspectLog, image)
+	if f.imageInspectErr != nil {
+		if err, ok := f.imageInspectErr[image]; ok {
+			return "", err
+		}
+	}
+	if v, ok := f.imageInspectOut[image]; ok {
+		return v, nil
+	}
+	return "", nil
 }
 
 func (f *fakeRunner) version(_ context.Context) (string, error) {
@@ -216,6 +233,50 @@ func TestEnrichBadInspectJSON(t *testing.T) {
 	}
 	c := &Client{File: "f", Project: "p", r: r}
 	_, err := c.Ps(context.Background())
+	assert.NotNil(t, err)
+
+}
+
+func TestImageIDReturnsDigest(t *testing.T) {
+	r := &fakeRunner{
+		imageInspectOut: map[string]string{
+			"traefik:v3": "sha256:deadbeef\n",
+		},
+	}
+	c := &Client{File: "f", Project: "p", r: r}
+	id, err := c.ImageID(context.Background(), "traefik:v3")
+	require.NoError(t, err)
+
+	assert.Equal(t, "sha256:deadbeef", id)
+
+	require.Equal(t, 1, len(r.imageInspectLog))
+
+	assert.Equal(t, "traefik:v3", r.imageInspectLog[0])
+
+}
+
+func TestImageIDReturnsEmptyForMissingImage(t *testing.T) {
+	r := &fakeRunner{
+		imageInspectErr: map[string]error{
+			"missing:tag": errors.New("Error: No such image: missing:tag"),
+		},
+	}
+	c := &Client{File: "f", Project: "p", r: r}
+	id, err := c.ImageID(context.Background(), "missing:tag")
+	require.NoError(t, err)
+
+	assert.Equal(t, "", id)
+
+}
+
+func TestImageIDPropagatesOtherErrors(t *testing.T) {
+	r := &fakeRunner{
+		imageInspectErr: map[string]error{
+			"img:tag": errors.New("docker daemon unreachable"),
+		},
+	}
+	c := &Client{File: "f", Project: "p", r: r}
+	_, err := c.ImageID(context.Background(), "img:tag")
 	assert.NotNil(t, err)
 
 }
