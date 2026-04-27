@@ -24,6 +24,16 @@ type fakeRunner struct {
 	imageInspectLog	[]string
 
 	versionErr	error
+
+	networkInspectOut	map[string]string
+	networkInspectErr	map[string]error
+	networkCreateErr	error
+	networksCreated		[]string
+
+	volumeInspectOut	map[string]string
+	volumeInspectErr	map[string]error
+	volumeCreateErr		error
+	volumesCreated		[]string
 }
 
 func (f *fakeRunner) composeArgs(_ context.Context, file, project string, args ...string) (string, error) {
@@ -64,6 +74,36 @@ func (f *fakeRunner) version(_ context.Context) (string, error) {
 		return "", f.versionErr
 	}
 	return "Docker Compose version v2.30.0", nil
+}
+
+func (f *fakeRunner) networkInspect(_ context.Context, name string) (string, error) {
+	if v, ok := f.networkInspectOut[name]; ok {
+		return v, nil
+	}
+	if err, ok := f.networkInspectErr[name]; ok {
+		return "", err
+	}
+	return "", nil
+}
+
+func (f *fakeRunner) networkCreate(_ context.Context, name string) error {
+	f.networksCreated = append(f.networksCreated, name)
+	return f.networkCreateErr
+}
+
+func (f *fakeRunner) volumeInspect(_ context.Context, name string) (string, error) {
+	if v, ok := f.volumeInspectOut[name]; ok {
+		return v, nil
+	}
+	if err, ok := f.volumeInspectErr[name]; ok {
+		return "", err
+	}
+	return "", nil
+}
+
+func (f *fakeRunner) volumeCreate(_ context.Context, name string) error {
+	f.volumesCreated = append(f.volumesCreated, name)
+	return f.volumeCreateErr
 }
 
 func TestParsePsArrayForm(t *testing.T) {

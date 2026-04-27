@@ -31,6 +31,10 @@ var runFlags struct {
 
 	sopsEnvFiles []string
 
+	ensureNetworks     bool
+	ensureBindMounts   bool
+	ensureNamedVolumes bool
+
 	source source.Flags
 }
 
@@ -70,11 +74,14 @@ var runCmd = &cobra.Command{
 		}
 
 		cfg := runner.Config{
-			Source:       src,
-			State:        dir,
-			Project:      runFlags.project,
-			Interval:     runFlags.interval,
-			PullInterval: runFlags.pullInterval,
+			Source:             src,
+			State:              dir,
+			Project:            runFlags.project,
+			Interval:           runFlags.interval,
+			PullInterval:       runFlags.pullInterval,
+			EnsureNetworks:     runFlags.ensureNetworks,
+			EnsureBindMounts:   runFlags.ensureBindMounts,
+			EnsureNamedVolumes: runFlags.ensureNamedVolumes,
 		}
 		if runFlags.once {
 			return runner.RunOnce(ctx, cfg)
@@ -93,6 +100,9 @@ func init() {
 	runCmd.Flags().BoolVar(&runFlags.autoUpdate, "auto-update", true, "periodically check for a newer release and replace the binary (requires pm2 or similar to restart)")
 	runCmd.Flags().DurationVar(&runFlags.autoUpdateInterval, "auto-update-interval", time.Hour, "how often to check for updates")
 	runCmd.Flags().StringSliceVar(&runFlags.sopsEnvFiles, "sops-env-file", nil, "path to a sops-encrypted dotenv file; decrypted values are exported into the daemon process and become available for ${VAR} substitution in the compose file. Repeatable.")
+	runCmd.Flags().BoolVar(&runFlags.ensureNetworks, "ensure-networks", true, "pre-create any external: true networks the compose file references that don't already exist")
+	runCmd.Flags().BoolVar(&runFlags.ensureBindMounts, "ensure-bind-mounts", true, "mkdir -p any absolute bind-mount host paths that don't already exist")
+	runCmd.Flags().BoolVar(&runFlags.ensureNamedVolumes, "ensure-named-volumes", true, "pre-create any external: true named volumes that don't already exist")
 
 	addSourceFlags(runCmd, &runFlags.source)
 	rootCmd.AddCommand(runCmd)

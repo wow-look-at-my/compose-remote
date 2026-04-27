@@ -23,6 +23,14 @@ type runner interface {
 	imageInspect(ctx context.Context, image string) (string, error)
 	// version runs `docker compose version` (used by EnsureAvailable).
 	version(ctx context.Context) (string, error)
+	// networkInspect runs `docker network inspect <name>`.
+	networkInspect(ctx context.Context, name string) (string, error)
+	// networkCreate runs `docker network create <name>`.
+	networkCreate(ctx context.Context, name string) error
+	// volumeInspect runs `docker volume inspect <name>`.
+	volumeInspect(ctx context.Context, name string) (string, error)
+	// volumeCreate runs `docker volume create <name>`.
+	volumeCreate(ctx context.Context, name string) error
 }
 
 // Client wraps the `docker compose` v2 CLI for one project.
@@ -212,6 +220,24 @@ func (realRunner) imageInspect(ctx context.Context, image string) (string, error
 
 func (realRunner) version(ctx context.Context) (string, error) {
 	return runDocker(ctx, "compose", "version")
+}
+
+func (realRunner) networkInspect(ctx context.Context, name string) (string, error) {
+	return runDocker(ctx, "network", "inspect", name)
+}
+
+func (realRunner) networkCreate(ctx context.Context, name string) error {
+	_, err := runDocker(ctx, "network", "create", name)
+	return err
+}
+
+func (realRunner) volumeInspect(ctx context.Context, name string) (string, error) {
+	return runDocker(ctx, "volume", "inspect", name)
+}
+
+func (realRunner) volumeCreate(ctx context.Context, name string) error {
+	_, err := runDocker(ctx, "volume", "create", name)
+	return err
 }
 
 func runDocker(ctx context.Context, args ...string) (string, error) {

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/wow-look-at-my/compose-remote/internal/compose"
@@ -24,6 +25,14 @@ type Config struct {
 	// reconcile.PullSet. Image-SHA drift detection in Diff still works
 	// regardless -- it just relies on whatever's in the local cache.
 	PullInterval time.Duration
+
+	// EnsureNetworks, EnsureBindMounts, EnsureNamedVolumes control
+	// whether prerequisite resources are created before each `compose up`.
+	// All default to true (zero value = false, so callers must set them
+	// explicitly; see cmd/run.go and cmd/apply.go which default-on).
+	EnsureNetworks      bool
+	EnsureBindMounts    bool
+	EnsureNamedVolumes  bool
 }
 
 // Run starts the reconcile loop. It returns when ctx is cancelled or an
@@ -154,6 +163,17 @@ func Tick(ctx context.Context, cfg Config, client reconcile.Composer) error {
 		)
 	}
 
+	// Ensure prerequisites exist before bringing up.
+	if cfg.EnsureNetworks {
+		ensureNetworks(ctx, client, parsed.ExternalNetworks())
+	}
+	if cfg.EnsureNamedVolumes {
+		ensureNamedVolumes(ctx, client, parsed.ExternalVolumes())
+	}
+	if cfg.EnsureBindMounts {
+		ensureBindMounts(parsed.BindMountSources())
+	}
+
 	// Inspect actual.
 	actual, err := client.Ps(ctx)
 	if err != nil {
@@ -205,5 +225,61 @@ func Tick(ctx context.Context, cfg Config, client reconcile.Composer) error {
 	}
 	log.Info("apply complete", log.KV{K: "diffs", V: len(items)})
 	return nil
+}
+
+func ensureNetworks(ctx context.Context, c reconcile.Composer, names []string) {
+	for _, name := range names {
+		exists, err := c.NetworkInspect(ctx, name)
+		if err != nil {
+			log.Warn("network inspect failed",
+				log.KV{K: "network", V: name},
+				log.KV{K: "err", V: err.Error()})
+			continue
+		}
+		if exists {
+			continue
+		}
+		if err := c.NetworkCreate(ctx, name); err != nil {
+			log.Warn("network create failed",
+				log.KV{K: "network", V: name},
+				log.KV{K: "err", V: err.Error()})
+			continue
+		}
+		log.Info("created network", log.KV{K: "network", V: name})
+	}
+}
+
+func ensureNamedVolumes(ctx context.Context, c reconcile.Composer, names []string) {
+	for _, name := range names {
+		exists, err := c.VolumeInspect(ctx, name)
+		if err != nil {
+			log.Warn("volume inspect failed",
+				log.KV{K: "volume", V: name},
+				log.KV{K: "err", V: err.Error()})
+			continue
+		}
+		if exists {
+			continue
+		}
+		if err := c.VolumeCreate(ctx, name); err != nil {
+			log.Warn("volume create failed",
+				log.KV{K: "volume", V: name},
+				log.KV{K: "err", V: err.Error()})
+			continue
+		}
+		log.Info("created volume", log.KV{K: "volume", V: name})
+	}
+}
+
+func ensureBindMounts(paths []string) {
+	for _, p := range paths {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			log.Warn("mkdir bind-mount source failed",
+				log.KV{K: "path", V: p},
+				log.KV{K: "err", V: err.Error()})
+			continue
+		}
+		log.Info("ensured bind-mount source", log.KV{K: "path", V: p})
+	}
 }
 

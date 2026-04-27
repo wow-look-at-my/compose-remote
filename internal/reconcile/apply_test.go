@@ -78,6 +78,11 @@ func (f *fakeCompose) ImageID(_ context.Context, _ string) (string, error) {
 	return "", nil
 }
 
+func (f *fakeCompose) NetworkInspect(_ context.Context, _ string) (bool, error) { return true, nil }
+func (f *fakeCompose) NetworkCreate(_ context.Context, _ string) error            { return nil }
+func (f *fakeCompose) VolumeInspect(_ context.Context, _ string) (bool, error)  { return true, nil }
+func (f *fakeCompose) VolumeCreate(_ context.Context, _ string) error            { return nil }
+
 func TestApplyEmptyItemsIsNoOp(t *testing.T) {
 	f := &fakeCompose{}
 	require.NoError(t, Apply(context.Background(), f, nil))
