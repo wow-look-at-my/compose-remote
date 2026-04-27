@@ -21,6 +21,10 @@ var applyFlags struct {
 
 	sopsEnvFiles []string
 
+	ensureNetworks     bool
+	ensureBindMounts   bool
+	ensureNamedVolumes bool
+
 	source source.Flags
 }
 
@@ -52,9 +56,12 @@ var applyCmd = &cobra.Command{
 		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		return runner.RunOnce(ctx, runner.Config{
-			Source:  src,
-			State:   dir,
-			Project: applyFlags.project,
+			Source:             src,
+			State:              dir,
+			Project:            applyFlags.project,
+			EnsureNetworks:     applyFlags.ensureNetworks,
+			EnsureBindMounts:   applyFlags.ensureBindMounts,
+			EnsureNamedVolumes: applyFlags.ensureNamedVolumes,
 		})
 	},
 }
@@ -64,6 +71,9 @@ func init() {
 	applyCmd.Flags().StringVar(&applyFlags.project, "project", "", "docker compose project name (default: --name)")
 	applyCmd.Flags().StringVar(&applyFlags.stateDir, "state-dir", "", "state directory (default: $XDG_STATE_HOME/compose-remote)")
 	applyCmd.Flags().StringSliceVar(&applyFlags.sopsEnvFiles, "sops-env-file", nil, "path to a sops-encrypted dotenv file; decrypted values are exported into the process and become available for ${VAR} substitution in the compose file. Repeatable.")
+	applyCmd.Flags().BoolVar(&applyFlags.ensureNetworks, "ensure-networks", true, "pre-create any external: true networks the compose file references that don't already exist")
+	applyCmd.Flags().BoolVar(&applyFlags.ensureBindMounts, "ensure-bind-mounts", true, "mkdir -p any absolute bind-mount host paths that don't already exist")
+	applyCmd.Flags().BoolVar(&applyFlags.ensureNamedVolumes, "ensure-named-volumes", true, "pre-create any external: true named volumes that don't already exist")
 	addSourceFlags(applyCmd, &applyFlags.source)
 	rootCmd.AddCommand(applyCmd)
 }

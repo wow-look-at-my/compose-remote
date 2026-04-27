@@ -20,6 +20,10 @@ type Composer interface {
 	ForceRecreate(ctx context.Context, service string) error
 	Ps(ctx context.Context) ([]compose.Container, error)
 	ImageID(ctx context.Context, image string) (string, error)
+	NetworkInspect(ctx context.Context, name string) (bool, error)
+	NetworkCreate(ctx context.Context, name string) error
+	VolumeInspect(ctx context.Context, name string) (bool, error)
+	VolumeCreate(ctx context.Context, name string) error
 }
 
 // Apply resolves the diff set against the live host. It:

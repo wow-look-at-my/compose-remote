@@ -53,6 +53,9 @@ Common flags:
 | `--auto-update`             | Enable background self-update checks (requires a process supervisor to restart). |
 | `--auto-update-interval`    | How often to poll for a new release (default `1h`).                            |
 | `--sops-env-file`           | Path to a sops-encrypted secrets file (`.json`, `.yaml`/`.yml`, or `.env`). Repeatable. Decrypted at startup; values are exported into the daemon process so `${VAR}` substitutions in the compose YAML resolve. Plaintext is never written to disk. |
+| `--ensure-networks`         | Pre-create any `external: true` networks the compose file references that don't already exist. Default: `true`. |
+| `--ensure-named-volumes`    | Pre-create any `external: true` named volumes that don't already exist. Default: `true`. |
+| `--ensure-bind-mounts`      | `mkdir -p` any absolute host paths used as bind-mount sources that don't already exist. Default: `true`. |
 
 Source flags (mutually exclusive, exactly one required):
 
@@ -124,6 +127,26 @@ files override earlier ones, matching shell `source` semantics.
 To rotate a secret, update the encrypted file and restart compose-remote
 (e.g. `pm2 restart <stack>`). The next reconcile picks up the new value.
 
+## Prerequisite resources
+
+Before running `docker compose up`, compose-remote can automatically
+create any host resources that the compose file references but that don't
+yet exist. This eliminates the "network not found" class of first-deploy
+failures for stacks that share external infrastructure.
+
+| What is created | Trigger | docker command |
+|-----------------|---------|----------------|
+| External network | `networks: <name>: external: true` | `docker network create <name>` |
+| External named volume | `volumes: <name>: external: true` | `docker volume create <name>` |
+| Bind-mount source dir | Absolute host path in `volumes:` | `mkdir -p <path>` |
+
+All three are idempotent: already-existing resources are detected first
+(`docker network inspect` / `docker volume inspect` / stat) and skipped.
+Errors are logged but do not abort the reconcile.
+
+Disable any of these with `--ensure-networks=false`,
+`--ensure-named-volumes=false`, or `--ensure-bind-mounts=false`.
+
 ## How it works
 
 Every `--interval`:
@@ -134,11 +157,12 @@ Every `--interval`:
 2. Parse the file, compute a deterministic per-service config hash
    (including any referenced `env_file:` content), and inject the hash as
    a label `io.compose-remote.config-hash` on each service.
-3. Inspect every running compose-managed container on the host and read
+3. Ensure prerequisite resources (networks, volumes, bind-mount dirs).
+4. Inspect every running compose-managed container on the host and read
    its label.
-4. Categorize each desired service as: `missing`, `drifted-config`,
+5. Categorize each desired service as: `missing`, `drifted-config`,
    `drifted-image`, `unhealthy`, or in-sync.
-5. If any service is non-sync:
+6. If any service is non-sync:
    - `docker compose pull <svc>` for image-drifted services only.
    - `docker compose up -d --remove-orphans --wait`. The `--wait` is
      mandatory.

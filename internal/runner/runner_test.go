@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -45,6 +46,11 @@ type fakeComposer struct {
 	forceCalls	[]string
 	imageIDs	map[string]string
 	mu		sync.Mutex
+
+	networksExist	map[string]bool
+	networksCreated	[]string
+	volumesExist	map[string]bool
+	volumesCreated	[]string
 }
 
 func (f *fakeComposer) Pull(_ context.Context, services ...string) error {
@@ -82,6 +88,34 @@ func (f *fakeComposer) ImageID(_ context.Context, image string) (string, error) 
 		return "", nil
 	}
 	return f.imageIDs[image], nil
+}
+
+func (f *fakeComposer) NetworkInspect(_ context.Context, name string) (bool, error) {
+	if f.networksExist != nil {
+		return f.networksExist[name], nil
+	}
+	return true, nil
+}
+
+func (f *fakeComposer) NetworkCreate(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.networksCreated = append(f.networksCreated, name)
+	return nil
+}
+
+func (f *fakeComposer) VolumeInspect(_ context.Context, name string) (bool, error) {
+	if f.volumesExist != nil {
+		return f.volumesExist[name], nil
+	}
+	return true, nil
+}
+
+func (f *fakeComposer) VolumeCreate(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.volumesCreated = append(f.volumesCreated, name)
+	return nil
 }
 
 const oneServiceCompose = `services:
@@ -326,4 +360,140 @@ func TestRunLoopRecoversFromTickError(t *testing.T) {
 	cancel()
 	err := runLoop(ctx, cfg, cmp)
 	require.NoError(t, err) // graceful shutdown, despite the tick error
+}
+
+const externalResourcesCompose = `services:
+  web:
+    image: nginx
+    volumes:
+      - /abs/path:/in/container
+      - ./relative:/in/container
+networks:
+  traefik:
+    external: true
+  internal:
+    driver: bridge
+volumes:
+  mydata:
+    external: true
+`
+
+// TestTickCreatesExternalNetworkWhenEnabled verifies that Tick creates an
+// external network that doesn't yet exist when EnsureNetworks is true.
+func TestTickCreatesExternalNetworkWhenEnabled(t *testing.T) {
+	dir := newDir(t)
+	src := &fakeSource{content: []byte(externalResourcesCompose), rev: "v1"}
+	cmp := &fakeComposer{
+		networksExist: map[string]bool{"traefik": false},
+		volumesExist:  map[string]bool{"mydata": true},
+	}
+	cfg := Config{
+		Source:             src,
+		State:              dir,
+		Project:            "test",
+		EnsureNetworks:     true,
+		EnsureBindMounts:   false,
+		EnsureNamedVolumes: false,
+	}
+	require.NoError(t, Tick(context.Background(), cfg, cmp))
+
+	cmp.mu.Lock()
+	defer cmp.mu.Unlock()
+	assert.Equal(t, []string{"traefik"}, cmp.networksCreated)
+}
+
+// TestTickSkipsNetworkThatAlreadyExists verifies no NetworkCreate call is made
+// when the network already exists.
+func TestTickSkipsNetworkThatAlreadyExists(t *testing.T) {
+	dir := newDir(t)
+	src := &fakeSource{content: []byte(externalResourcesCompose), rev: "v1"}
+	cmp := &fakeComposer{
+		networksExist: map[string]bool{"traefik": true},
+	}
+	cfg := Config{
+		Source:         src,
+		State:          dir,
+		Project:        "test",
+		EnsureNetworks: true,
+	}
+	require.NoError(t, Tick(context.Background(), cfg, cmp))
+
+	cmp.mu.Lock()
+	defer cmp.mu.Unlock()
+	assert.Equal(t, 0, len(cmp.networksCreated))
+}
+
+// TestTickCreatesExternalVolumeWhenEnabled verifies external volume creation.
+func TestTickCreatesExternalVolumeWhenEnabled(t *testing.T) {
+	dir := newDir(t)
+	src := &fakeSource{content: []byte(externalResourcesCompose), rev: "v1"}
+	cmp := &fakeComposer{
+		networksExist: map[string]bool{"traefik": true},
+		volumesExist:  map[string]bool{"mydata": false},
+	}
+	cfg := Config{
+		Source:             src,
+		State:              dir,
+		Project:            "test",
+		EnsureNetworks:     false,
+		EnsureBindMounts:   false,
+		EnsureNamedVolumes: true,
+	}
+	require.NoError(t, Tick(context.Background(), cfg, cmp))
+
+	cmp.mu.Lock()
+	defer cmp.mu.Unlock()
+	assert.Equal(t, []string{"mydata"}, cmp.volumesCreated)
+}
+
+// TestTickDoesNotCreateWhenFlagsOff verifies that with all ensure flags false,
+// no network/volume creation happens even when they don't exist.
+func TestTickDoesNotCreateWhenFlagsOff(t *testing.T) {
+	dir := newDir(t)
+	src := &fakeSource{content: []byte(externalResourcesCompose), rev: "v1"}
+	cmp := &fakeComposer{
+		networksExist: map[string]bool{"traefik": false},
+		volumesExist:  map[string]bool{"mydata": false},
+	}
+	cfg := Config{
+		Source:             src,
+		State:              dir,
+		Project:            "test",
+		EnsureNetworks:     false,
+		EnsureBindMounts:   false,
+		EnsureNamedVolumes: false,
+	}
+	require.NoError(t, Tick(context.Background(), cfg, cmp))
+
+	cmp.mu.Lock()
+	defer cmp.mu.Unlock()
+	assert.Equal(t, 0, len(cmp.networksCreated))
+	assert.Equal(t, 0, len(cmp.volumesCreated))
+}
+
+// TestTickEnsureBindMountsCreatesDir verifies that EnsureBindMounts causes
+// mkdir -p on absolute bind-mount sources.
+func TestTickEnsureBindMountsCreatesDir(t *testing.T) {
+	dir := newDir(t)
+	tmpDir := t.TempDir()
+	bindSrc := tmpDir + "/bind-src"
+
+	yml := `services:
+  web:
+    image: nginx
+    volumes:
+      - ` + bindSrc + `:/in/container
+`
+	src := &fakeSource{content: []byte(yml), rev: "v1"}
+	cmp := &fakeComposer{}
+	cfg := Config{
+		Source:           src,
+		State:            dir,
+		Project:          "test",
+		EnsureBindMounts: true,
+	}
+	require.NoError(t, Tick(context.Background(), cfg, cmp))
+
+	_, err := os.Stat(bindSrc)
+	assert.NoError(t, err, "bind-mount source directory should have been created")
 }
