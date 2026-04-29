@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"runtime/debug"
 
 	"github.com/spf13/cobra"
+	selfupdate "github.com/wow-look-at-my/go-selfupdate-mini"
 )
 
 var versionCmd = &cobra.Command{
@@ -17,9 +17,4 @@ var versionCmd = &cobra.Command{
 
 func init() { rootCmd.AddCommand(versionCmd) }
 
-func currentVersion() string {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
-		return info.Main.Version
-	}
-	return "(devel)"
-}
+func currentVersion() string { return selfupdate.CurrentVersion() }

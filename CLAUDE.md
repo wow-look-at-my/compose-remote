@@ -112,8 +112,16 @@ The daemon can update itself via `go-selfupdate-mini`:
 
 The docker-compose stack is unaffected by a restart of compose-remote itself.
 
-Update checks are skipped silently when `currentVersion()` returns `"(devel)"`
-(i.e. a binary built directly from source rather than from a tagged release).
+`currentVersion()` delegates to `selfupdate.CurrentVersion()`, which returns
+the running binary's version with any leading `v` stripped — so it stays in
+the same shape as `Release.Version.Version` and a string compare actually
+works. (Before that helper existed, we used `info.Main.Version` raw, which
+kept the `v`, and the auto-update loop compared `v0.0.X` against `0.0.X`,
+"updated" on every tick, and pm2-restart-looped.)
+
+Update checks are skipped when `currentVersion()` doesn't look like a tagged
+semver release — i.e. `(devel)`, a short VCS revision, or `abc1234+dirty`.
+Only `MAJOR.MINOR.PATCH...` strings opt in.
 
 ## Adding a new source backend
 

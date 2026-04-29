@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -117,9 +118,17 @@ func addSourceFlags(cmd *cobra.Command, f *source.Flags) {
 	cmd.Flags().StringVar(&f.GitSSH, "git-ssh-key", "", "path to an SSH private key for the git source")
 }
 
+// releaseVersionRe matches "MAJOR.MINOR.PATCH" with no pre-release or
+// build-metadata suffix -- the form selfupdate.CurrentVersion returns for a
+// binary installed from a tagged release. Go pseudo-versions
+// ("0.0.0-DATE-SHA+dirty") and dev fallbacks ("(devel)", a short VCS
+// revision) deliberately fail the match so a checkout-built binary doesn't
+// "update" itself to whatever's tagged on the remote.
+var releaseVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
 func autoUpdateLoop(ctx context.Context, ver string, interval time.Duration) {
-	if ver == "(devel)" {
-		log.Warn("auto-update skipped: running a development build")
+	if !releaseVersionRe.MatchString(ver) {
+		log.Warn("auto-update skipped: not running a tagged release", log.KV{K: "ver", V: ver})
 		return
 	}
 
