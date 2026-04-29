@@ -6,5 +6,5 @@ import (
 
 func init() {
 	repo := selfupdate.NewRepositorySlug("wow-look-at-my", "compose-remote")
-	rootCmd.AddCommand(selfupdate.NewUpdateCommand(repo, currentVersion()))
+	selfupdate.RegisterCommands(rootCmd, repo)
 }
