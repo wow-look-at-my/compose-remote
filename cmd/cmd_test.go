@@ -44,7 +44,7 @@ func TestApplyRequiresName(t *testing.T) {
 }
 
 func TestVersionRunsCleanly(t *testing.T) {
-	rootCmd.SetArgs([]string{"version"})
+	rootCmd.SetArgs([]string{"version", "--bare"})
 	t.Cleanup(func() { rootCmd.SetArgs(nil) })
 	assert.Nil(t, rootCmd.Execute())
 }
@@ -52,7 +52,7 @@ func TestVersionRunsCleanly(t *testing.T) {
 func TestExecuteUsesRootCommand(t *testing.T) {
 	// Execute() reads from os.Args via rootCmd. Force it to a known-good
 	// invocation (version) so it returns nil and exercises the wrapper.
-	rootCmd.SetArgs([]string{"version"})
+	rootCmd.SetArgs([]string{"version", "--bare"})
 	t.Cleanup(func() { rootCmd.SetArgs(nil) })
 	Execute()
 }

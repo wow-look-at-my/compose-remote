@@ -71,7 +71,7 @@ var runCmd = &cobra.Command{
 		defer cancel()
 
 		if runFlags.autoUpdate && !runFlags.once {
-			go autoUpdateLoop(ctx, currentVersion(), runFlags.autoUpdateInterval)
+			go autoUpdateLoop(ctx, selfupdate.CurrentVersion(), runFlags.autoUpdateInterval)
 		}
 
 		cfg := runner.Config{

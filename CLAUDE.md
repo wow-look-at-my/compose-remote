@@ -101,7 +101,10 @@ clients we don't need. Operators using sops already have the binary.
 
 ## Self-update
 
-The daemon can update itself via `go-selfupdate-mini`:
+The daemon can update itself via `go-selfupdate-mini`. The `version`,
+`update`, and `install` subcommands are wired up by
+`selfupdate.RegisterCommands` in `cmd/selfupdate.go`; do not register them
+manually.
 
 - `compose-remote update` — one-shot: detect the latest GitHub release and
   replace the running binary, then exit.
@@ -112,16 +115,16 @@ The daemon can update itself via `go-selfupdate-mini`:
 
 The docker-compose stack is unaffected by a restart of compose-remote itself.
 
-`currentVersion()` delegates to `selfupdate.CurrentVersion()`, which returns
-the running binary's version with any leading `v` stripped — so it stays in
-the same shape as `Release.Version.Version` and a string compare actually
-works. (Before that helper existed, we used `info.Main.Version` raw, which
-kept the `v`, and the auto-update loop compared `v0.0.X` against `0.0.X`,
-"updated" on every tick, and pm2-restart-looped.)
+The auto-update loop reads the running version via `selfupdate.CurrentVersion()`,
+which returns the binary's version with any leading `v` stripped — same shape as
+`Release.Version.Version`, so a string compare actually works. (We previously
+used `info.Main.Version` raw, which kept the `v`, and the auto-update loop
+compared `v0.0.X` against `0.0.X`, "updated" on every tick, and
+pm2-restart-looped.)
 
-Update checks are skipped when `currentVersion()` doesn't look like a tagged
+Update checks are skipped when `CurrentVersion()` doesn't look like a tagged
 semver release — i.e. `(devel)`, a short VCS revision, or `abc1234+dirty`.
-Only `MAJOR.MINOR.PATCH...` strings opt in.
+Only bare `MAJOR.MINOR.PATCH` strings opt in.
 
 ## Adding a new source backend
 
